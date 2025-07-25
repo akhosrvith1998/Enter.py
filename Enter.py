@@ -8,21 +8,95 @@ import string
 import time
 import math
 from datetime import datetime
+import sqlite3
+import logging
+from logging.handlers import RotatingFileHandler
+import atexit
 
-# تنظیمات اولیه
+# ================== تنظیمات پایه ==================
 TOKEN = os.getenv("TOKEN", "8198317562:AAG2sH5sKB6xwjy5nu3CoOY9XB_dupKVWKU")
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
-DATA_FILE = "bot_data.json"
+DATABASE_FILE = "bot_data.db"
 
-# ساختار داده‌ها
-DEFAULT_DATA = {
-    "admin": None,
-    "users": {},
-    "files": {},
-    "sessions": {}
-}
+# ================== ساختار دیتابیس ==================
+def init_db():
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    # جدول کاربران
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        owner_chat_id INTEGER
+    )
+    ''')
+    
+    # جدول فایل‌ها
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS files (
+        file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        content TEXT NOT NULL,
+        UNIQUE(user_id, filename),
+        FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    ''')
+    
+    # جدول سشن‌ها
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        user_id TEXT,
+        auth_expiry REAL,
+        mode TEXT,
+        calculator_state TEXT,
+        last_message_id INTEGER,
+        FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE SET NULL
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
 
-# ساختار ماشین حساب
+# ================== توابع دیتابیس ==================
+def db_execute(query, params=(), fetchone=False, fetchall=False, commit=False):
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute(query, params)
+    
+    result = None
+    if fetchone:
+        result = cursor.fetchone()
+    elif fetchall:
+        result = cursor.fetchall()
+    
+    if commit:
+        conn.commit()
+    
+    conn.close()
+    return result
+
+def db_commit():
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.commit()
+    conn.close()
+
+# ================== تنظیمات لاگ‌گیری ==================
+log_handler = RotatingFileHandler(
+    'bot.log',
+    maxBytes=5*1024*1024,  # 5 MB
+    backupCount=3
+)
+log_handler.setFormatter(logging.Formatter(
+    '%(asctime)s - %(levelname)s - %(message)s'
+))
+logger = logging.getLogger()
+logger.addHandler(log_handler)
+logger.setLevel(logging.INFO)
+
+# ================== ساختار ماشین حساب ==================
 CALC_KEYBOARDS = [
     # سطح 0: عملیات پایه
     [
@@ -130,40 +204,27 @@ CALC_KEYBOARDS = [
     ]
 ]
 
-# ایجاد برنامه Flask
+# ================== برنامه Flask ==================
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "ربات تلگرام فعال است! (برای Render)"
+    return "ربات تلگرام فعال است! (نسخه پایدار)"
 
 @app.route('/health')
 def health_check():
     return jsonify({
         "status": "active",
         "time": datetime.now().isoformat(),
-        "bot": "Telegram File Storage & Calculator"
+        "bot": "Telegram File Storage & Calculator",
+        "stats": {
+            "users": db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0],
+            "files": db_execute("SELECT COUNT(*) FROM files", fetchone=True)[0],
+            "sessions": db_execute("SELECT COUNT(*) FROM sessions", fetchone=True)[0]
+        }
     })
 
-# ================== توابع ربات تلگرام ==================
-def load_data():
-    try:
-        if not os.path.exists(DATA_FILE):
-            return DEFAULT_DATA
-            
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"خطا در بارگیری داده‌ها: {e}")
-        return DEFAULT_DATA
-
-def save_data(data):
-    try:
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print(f"خطا در ذخیره داده‌ها: {e}")
-
+# ================== توابع کمکی ==================
 def generate_user_id():
     """ایجاد شناسه کاربری 18 کاراکتری منحصر به فرد"""
     uppercase = ''.join(random.choices(string.ascii_uppercase, k=6))
@@ -187,11 +248,10 @@ def send_message(chat_id, text, reply_markup=None):
         response = requests.post(url, json=payload, timeout=15)
         return response.json()
     except Exception as e:
-        print(f"خطا در ارسال پیام: {e}")
+        logger.error(f"خطا در ارسال پیام: {e}")
         return None
 
 def forward_message(chat_id, from_chat_id, message_id):
-    """فوروارد مستقیم پیام با حفظ اطلاعات اصلی"""
     url = f"{BASE_URL}/forwardMessage"
     payload = {
         "chat_id": chat_id,
@@ -203,7 +263,7 @@ def forward_message(chat_id, from_chat_id, message_id):
         response = requests.post(url, json=payload, timeout=20)
         return response.json()
     except Exception as e:
-        print(f"خطا در فوروارد پیام: {e}")
+        logger.error(f"خطا در فوروارد پیام: {e}")
         return None
 
 def send_media(chat_id, media_type, file_id, caption=None):
@@ -238,17 +298,21 @@ def send_media(chat_id, media_type, file_id, caption=None):
         response = requests.post(url, json=payload, timeout=20)
         return response.json()
     except Exception as e:
-        print(f"خطا در ارسال رسانه: {e}")
+        logger.error(f"خطا در ارسال رسانه: {e}")
         return None
 
-def is_user_authenticated(data, chat_id):
+def is_user_authenticated(chat_id):
     """بررسی احراز هویت کاربر"""
-    user_id = str(chat_id)
-    session = data["sessions"].get(user_id)
+    session = db_execute(
+        "SELECT * FROM sessions WHERE session_id = ?",
+        (str(chat_id),),
+        fetchone=True
+    )
+    
     if not session:
         return False
     
-    if time.time() > session.get("auth_expiry", 0):
+    if time.time() > session[2]:  # auth_expiry
         return False
     
     return True
@@ -262,10 +326,13 @@ def show_calculator(chat_id, level=0, expression="", last_message_id=None):
         keyboard.append([{"text": btn, "callback_data": f"calc:{btn}"} for btn in row])
     
     if last_message_id:
-        requests.post(f"{BASE_URL}/deleteMessage", json={
-            "chat_id": chat_id,
-            "message_id": last_message_id
-        }, timeout=5)
+        try:
+            requests.post(f"{BASE_URL}/deleteMessage", json={
+                "chat_id": chat_id,
+                "message_id": last_message_id
+            }, timeout=5)
+        except:
+            pass
     
     result = send_message(
         chat_id,
@@ -312,28 +379,40 @@ def calculate_expression(expression):
     except Exception as e:
         return f"خطا: {str(e)}"
 
-def handle_command(data, message):
+# ================== مدیریت دستورات ==================
+def handle_command(message):
     chat_id = message["chat"]["id"]
     text = message.get("text", "").strip()
     user_id = str(chat_id)
     
+    # دستورات ادمین
+    admin_chat_id = db_execute(
+        "SELECT value FROM settings WHERE key = 'admin'",
+        fetchone=True
+    )
+    
+    if admin_chat_id:
+        admin_chat_id = admin_chat_id[0]
+    
     if text == "88077413Xcph4":
-        data["admin"] = chat_id
-        save_data(data)
+        db_execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("admin", str(chat_id)),
+            commit=True
+        )
         send_message(chat_id, "<b>✅ شما ادمین ربات شدید!</b>\nدستورات مدیریتی:\n/panel - پنل مدیریت")
         return
     
-    is_admin = data.get("admin") == chat_id
-    session = data["sessions"].get(user_id, {})
+    is_admin = str(chat_id) == admin_chat_id if admin_chat_id else False
     
     if is_admin:
         if text.lower() == "/generate":
             new_user_id = generate_user_id()
-            data["users"][new_user_id] = {
-                "created_at": datetime.now().isoformat(),
-                "owner_chat_id": None
-            }
-            save_data(data)
+            db_execute(
+                "INSERT INTO users (user_id, created_at) VALUES (?, ?)",
+                (new_user_id, datetime.now().isoformat()),
+                commit=True
+            )
             send_message(
                 chat_id, 
                 f"<b>🔑 شناسه کاربری جدید ایجاد شد!</b>\n\n"
@@ -343,28 +422,33 @@ def handle_command(data, message):
             return
         
         if text.lower() == "/panel":
-            show_admin_panel(chat_id, data)
+            show_admin_panel(chat_id)
             return
         
         if text.lower() == "/users":
+            users = db_execute("SELECT user_id FROM users", fetchall=True)
             keyboard = {"inline_keyboard": []}
-            for uid in data["users"].keys():
+            for uid in users:
                 keyboard["inline_keyboard"].append([{
-                    "text": f"🔑 {uid}",
-                    "callback_data": f"user_detail:{uid}"
+                    "text": f"🔑 {uid[0]}",
+                    "callback_data": f"user_detail:{uid[0]}"
                 }])
-            send_message(chat_id, f"<b>👥 لیست کاربران ({len(data['users'])}):</b>", keyboard)
+            send_message(chat_id, f"<b>👥 لیست کاربران ({len(users)}):</b>", keyboard)
             return
         
         if text.lower().startswith("/files "):
             parts = text.split()
             if len(parts) >= 2:
                 user_id_to_view = parts[1]
-                user_files = data["files"].get(user_id_to_view, {})
+                user_files = db_execute(
+                    "SELECT filename FROM files WHERE user_id = ?",
+                    (user_id_to_view,),
+                    fetchall=True
+                )
                 if not user_files:
                     send_message(chat_id, "⚠️ هیچ فایلی برای این کاربر یافت نشد")
                     return
-                files_list = "\n".join([f"📁 {name}" for name in user_files.keys()])
+                files_list = "\n".join([f"📁 {name[0]}" for name in user_files])
                 send_message(
                     chat_id,
                     f"<b>🗂 فایل‌های کاربر {user_id_to_view[:12]}...:</b>\n\n{files_list}\n\n"
@@ -377,11 +461,15 @@ def handle_command(data, message):
             if len(parts) >= 3:
                 user_id_to_view = parts[1]
                 filename = parts[2]
-                user_files = data["files"].get(user_id_to_view, {})
-                if filename not in user_files:
+                file_content = db_execute(
+                    "SELECT content FROM files WHERE user_id = ? AND filename = ?",
+                    (user_id_to_view, filename),
+                    fetchone=True
+                )
+                if not file_content:
                     send_message(chat_id, "⚠️ فایل مورد نظر یافت نشد")
                     return
-                content = user_files[filename]
+                content = json.loads(file_content[0])
                 send_message(chat_id, f"<b>📦 محتوای فایل {filename}:</b>\n")
                 for item in content:
                     if item.get("is_forwarded"):
@@ -416,32 +504,37 @@ def handle_command(data, message):
             parts = text.split(maxsplit=1)
             if len(parts) >= 2:
                 user_id_to_delete = parts[1]
-                if user_id_to_delete in data["users"]:
-                    if user_id_to_delete in data["files"]:
-                        del data["files"][user_id_to_delete]
-                    del data["users"][user_id_to_delete]
-                    for chat_id_str, session in list(data["sessions"].items()):
-                        if session.get("user_id") == user_id_to_delete:
-                            del data["sessions"][chat_id_str]
-                    save_data(data)
+                if db_execute("SELECT 1 FROM users WHERE user_id = ?", (user_id_to_delete,), fetchone=True):
+                    db_execute("DELETE FROM users WHERE user_id = ?", (user_id_to_delete,), commit=True)
                     send_message(chat_id, f"✅ شناسه کاربری <code>{user_id_to_delete}</code> با موفقیت حذف شد!")
                 else:
                     send_message(chat_id, "⚠️ شناسه کاربری یافت نشد")
             return
     
+    # احراز هویت کاربران عادی
     if len(text) == 18:
-        if text in data["users"]:
-            user_data = data["users"][text]
-            if user_data.get("owner_chat_id") and user_data["owner_chat_id"] != chat_id:
+        if db_execute("SELECT 1 FROM users WHERE user_id = ?", (text,), fetchone=True):
+            owner = db_execute(
+                "SELECT owner_chat_id FROM users WHERE user_id = ?",
+                (text,),
+                fetchone=True
+            )
+            if owner and owner[0] and int(owner[0]) != chat_id:
                 send_message(chat_id, "⚠️ این شناسه قبلاً توسط کاربر دیگری فعال شده است")
                 return
-            if not user_data.get("owner_chat_id"):
-                user_data["owner_chat_id"] = chat_id
-            data["sessions"][user_id] = {
-                "user_id": text,
-                "auth_expiry": time.time() + 24 * 3600
-            }
-            save_data(data)
+            
+            db_execute(
+                "UPDATE users SET owner_chat_id = ? WHERE user_id = ?",
+                (chat_id, text),
+                commit=True
+            )
+            
+            db_execute(
+                "INSERT OR REPLACE INTO sessions (session_id, user_id, auth_expiry) VALUES (?, ?, ?)",
+                (user_id, text, time.time() + 24 * 3600),
+                commit=True
+            )
+            
             send_message(
                 chat_id,
                 "🔓 احراز هویت موفق!\n"
@@ -453,41 +546,58 @@ def handle_command(data, message):
             )
             return
     
-    if not is_user_authenticated(data, chat_id):
+    # دستورات کاربران احراز شده
+    if not is_user_authenticated(chat_id):
         return
     
-    user_session = data["sessions"][user_id]
-    user_id_key = user_session["user_id"]
+    session = db_execute(
+        "SELECT * FROM sessions WHERE session_id = ?",
+        (user_id,),
+        fetchone=True
+    )
+    user_id_key = session[1]  # user_id in session
     
     if text.lower() == "/set":
-        data["sessions"][user_id]["mode"] = "collecting"
-        data["sessions"][user_id]["content"] = []
-        save_data(data)
+        db_execute(
+            "UPDATE sessions SET mode = 'collecting', content = '[]' WHERE session_id = ?",
+            (user_id,),
+            commit=True
+        )
         send_message(chat_id, "📥 حالت ذخیره‌سازی فعال شد!\nهمه پیام‌های شما ذخیره می‌شوند.\nبرای پایان /end ارسال کنید.")
         return
     
-    if text.lower() == "/end" and user_session.get("mode") == "collecting":
-        data["sessions"][user_id]["mode"] = "naming"
-        save_data(data)
+    if text.lower() == "/end" and session[3] == "collecting":  # mode
+        db_execute(
+            "UPDATE sessions SET mode = 'naming' WHERE session_id = ?",
+            (user_id,),
+            commit=True
+        )
         send_message(chat_id, "ذخیره‌سازی پایان یافت. لطفاً نام فایل را وارد کنید:")
         return
     
     if text.lower() == "/del":
-        user_files = data["files"].get(user_id_key, {})
+        user_files = db_execute(
+            "SELECT filename FROM files WHERE user_id = ?",
+            (user_id_key,),
+            fetchall=True
+        )
         if not user_files:
             send_message(chat_id, "⚠️ شما هیچ فایلی ندارید")
             return
-        files_list = "\n".join([f"📁 {name}" for name in user_files.keys()])
+        files_list = "\n".join([f"📁 {name[0]}" for name in user_files])
         send_message(
             chat_id,
             f"<b>فایل‌های شما:</b>\n\n{files_list}\n\n"
             "لطفاً نام فایلی را که می‌خواهید حذف کنید وارد نمایید:"
         )
-        data["sessions"][user_id]["mode"] = "deleting"
-        save_data(data)
+        db_execute(
+            "UPDATE sessions SET mode = 'deleting' WHERE session_id = ?",
+            (user_id,),
+            commit=True
+        )
         return
     
-    if user_session.get("mode") == "collecting":
+    if session[3] == "collecting":  # mode
         content_item = {}
         if "forward_from" in message or "forward_from_chat" in message:
             content_item["is_forwarded"] = True
@@ -530,36 +640,72 @@ def handle_command(data, message):
         else:
             content_item["type"] = "unsupported"
         
-        data["sessions"][user_id]["content"].append(content_item)
-        save_data(data)
+        # به‌روزرسانی محتوا در دیتابیس
+        current_content = db_execute(
+            "SELECT content FROM sessions WHERE session_id = ?",
+            (user_id,),
+            fetchone=True
+        )[0]
+        content_list = json.loads(current_content)
+        content_list.append(content_item)
+        
+        db_execute(
+            "UPDATE sessions SET content = ? WHERE session_id = ?",
+            (json.dumps(content_list), user_id),
+            commit=True
+        )
         return
     
-    if user_session.get("mode") == "naming":
+    if session[3] == "naming":  # mode
         filename = text
-        content = user_session.get("content", [])
-        if user_id_key not in data["files"]:
-            data["files"][user_id_key] = {}
-        data["files"][user_id_key][filename] = content
-        data["sessions"][user_id]["mode"] = None
-        data["sessions"][user_id]["content"] = []
-        save_data(data)
+        content = db_execute(
+            "SELECT content FROM sessions WHERE session_id = ?",
+            (user_id,),
+            fetchone=True
+        )[0]
+        
+        db_execute(
+            "INSERT INTO files (user_id, filename, content) VALUES (?, ?, ?)",
+            (user_id_key, filename, content),
+            commit=True
+        )
+        
+        db_execute(
+            "UPDATE sessions SET mode = NULL, content = NULL WHERE session_id = ?",
+            (user_id,),
+            commit=True
+        )
+        
         send_message(chat_id, f"✅ فایل با نام <code>{filename}</code> ذخیره شد!")
         return
     
-    if user_session.get("mode") == "deleting":
-        user_files = data["files"].get(user_id_key, {})
-        if text in user_files:
-            del user_files[text]
+    if session[3] == "deleting":  # mode
+        db_execute(
+            "DELETE FROM files WHERE user_id = ? AND filename = ?",
+            (user_id_key, text),
+            commit=True
+        )
+        
+        if db_execute("SELECT changes()", fetchone=True)[0] > 0:
             send_message(chat_id, f"✅ فایل <code>{text}</code> با موفقیت حذف شد!")
         else:
             send_message(chat_id, "⚠️ فایل مورد نظر یافت نشد")
-        data["sessions"][user_id]["mode"] = None
-        save_data(data)
+        
+        db_execute(
+            "UPDATE sessions SET mode = NULL WHERE session_id = ?",
+            (user_id,),
+            commit=True
+        )
         return
     
-    user_files = data["files"].get(user_id_key, {})
-    if text in user_files:
-        content = user_files[text]
+    # نمایش محتوای فایل
+    file_content = db_execute(
+        "SELECT content FROM files WHERE user_id = ? AND filename = ?",
+        (user_id_key, text),
+        fetchone=True
+    )
+    if file_content:
+        content = json.loads(file_content[0])
         send_message(chat_id, f"📦 محتوای فایل <b>{text}</b>:\n")
         for item in content:
             if item.get("is_forwarded"):
@@ -590,7 +736,8 @@ def handle_command(data, message):
                     )
         return
 
-def show_admin_panel(chat_id, data):
+# ================== مدیریت رابط کاربری ==================
+def show_admin_panel(chat_id):
     keyboard = {
         "inline_keyboard": [
             [{"text": "🔑 ایجاد شناسه جدید", "callback_data": "generate"}],
@@ -600,17 +747,21 @@ def show_admin_panel(chat_id, data):
     }
     send_message(chat_id, "<b>پنل مدیریت ربات</b>\nلطفاً گزینه مورد نظر را انتخاب کنید:", keyboard)
 
-def handle_calculator_callback(data, query):
+def handle_calculator_callback(query):
     chat_id = query["message"]["chat"]["id"]
     message_id = query["message"]["message_id"]
     callback_data = query["data"].split(":", 1)[1]
     user_id = str(chat_id)
     
-    session = data["sessions"].get(user_id, {})
-    calc_session = session.get("calculator", {})
+    session = db_execute(
+        "SELECT * FROM sessions WHERE session_id = ?",
+        (user_id,),
+        fetchone=True
+    )
     
-    expression = calc_session.get("expression", "")
-    level = calc_session.get("level", 0)
+    calculator_state = json.loads(session[4]) if session and session[4] else {}
+    expression = calculator_state.get("expression", "")
+    level = calculator_state.get("level", 0)
     
     if callback_data == "Clear":
         expression = ""
@@ -626,59 +777,82 @@ def handle_calculator_callback(data, query):
     else:
         expression += callback_data
     
-    data["sessions"][user_id]["calculator"] = {
+    new_calculator_state = json.dumps({
         "expression": expression,
         "level": level,
         "last_message_id": message_id
-    }
-    save_data(data)
+    })
+    
+    db_execute(
+        "UPDATE sessions SET calculator_state = ? WHERE session_id = ?",
+        (new_calculator_state, user_id),
+        commit=True
+    )
     
     new_message_id = show_calculator(chat_id, level, expression, message_id)
     
     if new_message_id:
-        data["sessions"][user_id]["calculator"]["last_message_id"] = new_message_id
-        save_data(data)
+        new_calculator_state = json.dumps({
+            "expression": expression,
+            "level": level,
+            "last_message_id": new_message_id
+        })
+        db_execute(
+            "UPDATE sessions SET calculator_state = ? WHERE session_id = ?",
+            (new_calculator_state, user_id),
+            commit=True
+        )
 
 def process_update(update):
     try:
-        data = load_data()
-        
         if "message" in update:
-            message = update["message"]
-            if message.get("text") == "/start":
-                chat_id = message["chat"]["id"]
+            if update["message"].get("text") == "/start":
+                chat_id = update["message"]["chat"]["id"]
                 user_id = str(chat_id)
-                if user_id not in data["sessions"]:
-                    data["sessions"][user_id] = {}
-                data["sessions"][user_id]["calculator"] = {
-                    "expression": "",
-                    "level": 0,
-                    "last_message_id": None
-                }
-                save_data(data)
+                
+                # ایجاد سشن اولیه برای ماشین حساب
+                db_execute(
+                    "INSERT OR REPLACE INTO sessions (session_id, calculator_state) VALUES (?, ?)",
+                    (user_id, json.dumps({
+                        "expression": "",
+                        "level": 0,
+                        "last_message_id": None
+                    })),
+                    commit=True
+                )
+                
                 message_id = show_calculator(chat_id)
                 if message_id:
-                    data["sessions"][user_id]["calculator"]["last_message_id"] = message_id
-                    save_data(data)
+                    db_execute(
+                        "UPDATE sessions SET calculator_state = ? WHERE session_id = ?",
+                        (json.dumps({
+                            "expression": "",
+                            "level": 0,
+                            "last_message_id": message_id
+                        }), user_id),
+                        commit=True
+                    )
                 return
-            handle_command(data, message)
+            
+            handle_command(update["message"])
         
-        if "callback_query" in update:
+        elif "callback_query" in update:
             query = update["callback_query"]
             chat_id = query["message"]["chat"]["id"]
             callback_data = query["data"]
             
             if callback_data.startswith("calc:"):
-                handle_calculator_callback(data, query)
+                handle_calculator_callback(query)
                 return
             
+            # مدیریت سایر callback‌ها
             if callback_data == "generate":
                 new_user_id = generate_user_id()
-                data["users"][new_user_id] = {
-                    "created_at": datetime.now().isoformat(),
-                    "owner_chat_id": None
-                }
-                save_data(data)
+                db_execute(
+                    "INSERT INTO users (user_id, created_at) VALUES (?, ?)",
+                    (new_user_id, datetime.now().isoformat()),
+                    commit=True
+                )
                 send_message(
                     chat_id, 
                     f"<b>🔑 شناسه کاربری جدید ایجاد شد!</b>\n\n"
@@ -687,20 +861,21 @@ def process_update(update):
                 )
             
             elif callback_data == "users":
+                users = db_execute("SELECT user_id FROM users", fetchall=True)
                 keyboard = {"inline_keyboard": []}
-                for uid in data["users"].keys():
+                for uid in users:
                     keyboard["inline_keyboard"].append([{
-                        "text": f"🔑 {uid}",
-                        "callback_data": f"user_detail:{uid}"
+                        "text": f"🔑 {uid[0]}",
+                        "callback_data": f"user_detail:{uid[0]}"
                     }])
-                send_message(chat_id, f"<b>👥 لیست کاربران ({len(data['users'])}):</b>", keyboard)
+                send_message(chat_id, f"<b>👥 لیست کاربران ({len(users)}):</b>", keyboard)
             
             elif callback_data == "stats":
                 stats = f"""
 <b>📊 آمار سیستم:</b>
-👤 کاربران ثبت‌شده: {len(data["users"])}
-🗂 فایل‌های ذخیره شده: {sum(len(f) for f in data["files"].values())}
-🔓 جلسات فعال: {len(data["sessions"])}
+👤 کاربران ثبت‌شده: {db_execute("SELECT COUNT(*) FROM users", fetchone=True)[0]}
+🗂 فایل‌های ذخیره شده: {db_execute("SELECT COUNT(*) FROM files", fetchone=True)[0]}
+🔓 جلسات فعال: {db_execute("SELECT COUNT(*) FROM sessions", fetchone=True)[0]}
 """
                 send_message(chat_id, stats)
             
@@ -718,29 +893,27 @@ def process_update(update):
             
             elif callback_data.startswith("delete_user:"):
                 user_id_to_delete = callback_data.split(":", 1)[1]
-                if user_id_to_delete in data["users"]:
-                    if user_id_to_delete in data["files"]:
-                        del data["files"][user_id_to_delete]
-                    del data["users"][user_id_to_delete]
-                    for chat_id_str, session in list(data["sessions"].items()):
-                        if session.get("user_id") == user_id_to_delete:
-                            del data["sessions"][chat_id_str]
-                    save_data(data)
+                if db_execute("SELECT 1 FROM users WHERE user_id = ?", (user_id_to_delete,), fetchone=True):
+                    db_execute("DELETE FROM users WHERE user_id = ?", (user_id_to_delete,), commit=True)
                     send_message(chat_id, f"✅ شناسه کاربری <code>{user_id_to_delete}</code> با موفقیت حذف شد!")
                 else:
                     send_message(chat_id, "⚠️ شناسه کاربری یافت نشد")
             
             elif callback_data.startswith("list_files:"):
                 user_id_to_view = callback_data.split(":", 1)[1]
-                user_files = data["files"].get(user_id_to_view, {})
+                user_files = db_execute(
+                    "SELECT filename FROM files WHERE user_id = ?",
+                    (user_id_to_view,),
+                    fetchall=True
+                )
                 if not user_files:
                     send_message(chat_id, "⚠️ هیچ فایلی برای این کاربر یافت نشد")
                     return
                 keyboard = {"inline_keyboard": []}
-                for filename in user_files.keys():
+                for filename in user_files:
                     keyboard["inline_keyboard"].append([{
-                        "text": f"📁 {filename}",
-                        "callback_data": f"view_file:{user_id_to_view}:{filename}"
+                        "text": f"📁 {filename[0]}",
+                        "callback_data": f"view_file:{user_id_to_view}:{filename[0]}"
                     }])
                 send_message(chat_id, f"<b>🗂 فایل‌های کاربر {user_id_to_view[:12]}...:</b>", keyboard)
             
@@ -749,11 +922,15 @@ def process_update(update):
                 if len(parts) >= 3:
                     user_id_to_view = parts[1]
                     filename = parts[2]
-                    user_files = data["files"].get(user_id_to_view, {})
-                    if filename not in user_files:
+                    file_content = db_execute(
+                        "SELECT content FROM files WHERE user_id = ? AND filename = ?",
+                        (user_id_to_view, filename),
+                        fetchone=True
+                    )
+                    if not file_content:
                         send_message(chat_id, "⚠️ فایل مورد نظر یافت نشد")
                         return
-                    content = user_files[filename]
+                    content = json.loads(file_content[0])
                     send_message(chat_id, f"<b>📦 محتوای فایل {filename}:</b>\n")
                     for item in content:
                         if item.get("is_forwarded"):
@@ -784,47 +961,115 @@ def process_update(update):
                                 )
                 
     except Exception as e:
-        print(f"خطا در پردازش: {e}")
+        logger.error(f"خطا در پردازش آپدیت: {e}\n{update}")
 
+# ================== سیستم همیشه فعال ==================
 def run_bot():
-    print("ربات تلگرام شروع به کار کرد...")
+    logger.info("ربات تلگرام شروع به کار کرد...")
     offset = 0
     while True:
         try:
             response = requests.get(
                 f"{BASE_URL}/getUpdates",
-                params={"offset": offset, "timeout": 30}
+                params={"offset": offset, "timeout": 60},
+                timeout=65
             )
             
             if response.status_code == 200:
                 updates = response.json().get("result", [])
                 for update in updates:
                     offset = update["update_id"] + 1
-                    process_update(update)
+                    threading.Thread(target=process_update, args=(update,)).start()
             else:
-                print(f"خطای API: {response.status_code}")
+                logger.warning(f"خطای API: {response.status_code}")
                 time.sleep(5)
+        except requests.exceptions.Timeout:
+            logger.info("Timeout, restarting polling...")
+        except requests.exceptions.ConnectionError:
+            logger.warning("Connection error, retrying in 10s...")
+            time.sleep(10)
         except Exception as e:
-            print(f"خطای غیرمنتظره: {e}")
+            logger.error(f"خطای غیرمنتظره: {e}")
             time.sleep(5)
 
 def keep_alive():
     while True:
         try:
+            # فعال نگه داشتن روی Render
+            if 'RENDER' in os.environ:
+                requests.get('https://your-bot-name.onrender.com/health', timeout=10)
+            
+            # فعال نگه داشتن اتصال به تلگرام
             requests.get(f"{BASE_URL}/getMe", timeout=10)
-            print(f"Keep-alive ping at {datetime.now()}")
+            
+            logger.info(f"Keep-alive ping at {datetime.now()}")
+            time.sleep(45)  # هر 45 ثانیه
         except Exception as e:
-            print(f"Keep-alive error: {e}")
-        time.sleep(50)
+            logger.error(f"Keep-alive error: {e}")
+            time.sleep(10)
 
-# ======== راه‌اندازی سرویس‌ها ========
-if __name__ == "__main__":
-    # شروع ربات تلگرام در پس زمینه
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
+# ================== تنظیمات اولیه ==================
+def setup():
+    # ایجاد جداول مورد نیاز
+    db_execute(
+        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)",
+        commit=True
+    )
     
-    # شروع سیستم keep-alive
+    # ایجاد جدول کاربران
+    db_execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        owner_chat_id INTEGER
+    )
+    ''', commit=True)
+    
+    # ایجاد جدول فایل‌ها
+    db_execute('''
+    CREATE TABLE IF NOT EXISTS files (
+        file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        content TEXT NOT NULL,
+        UNIQUE(user_id, filename),
+        FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    ''', commit=True)
+    
+    # ایجاد جدول سشن‌ها
+    db_execute('''
+    CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        user_id TEXT,
+        auth_expiry REAL,
+        mode TEXT,
+        content TEXT,
+        calculator_state TEXT,
+        last_message_id INTEGER,
+        FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE SET NULL
+    )
+    ''', commit=True)
+    
+    logger.info("پیکربندی پایگاه داده انجام شد")
+
+# ================== اجرای برنامه ==================
+if __name__ == "__main__":
+    # تنظیمات اولیه
+    setup()
+    
+    # تابع تمیزکاری هنگام خروج
+    atexit.register(db_commit)
+    
+    # شروع سیستم‌های پس‌زمینه
+    threading.Thread(target=run_bot, daemon=True).start()
     threading.Thread(target=keep_alive, daemon=True).start()
     
     # اجرای سرور Flask
-    app.run(host='0.0.0.0', port=10000)
+    app.run(
+        host='0.0.0.0',
+        port=int(os.environ.get('PORT', 10000)),
+        threaded=True,
+        debug=False,
+        use_reloader=False
+    )
