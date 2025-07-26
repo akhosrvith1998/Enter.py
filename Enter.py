@@ -517,6 +517,7 @@ def handle_command(message):
             return
         
         user_id_key = session[1]  # user_id in session
+        session_mode = session[3] if len(session) > 3 else None
         
         if text.lower() == "/set":
             db_execute(
@@ -527,8 +528,241 @@ def handle_command(message):
             send_message(chat_id, "📥 حالت ذخیره‌سازی فعال شد!\nهمه پیام‌های شما ذخیره می‌شوند.\nبرای پایان /end ارسال کنید.")
             return
         
-        # سایر دستورات کاربران ...
+        if text.lower() == "/end":
+            if session_mode == "collecting":
+                db_execute(
+                    "UPDATE sessions SET mode = 'naming' WHERE session_id = ?",
+                    (user_id,),
+                    commit=True
+                )
+                send_message(chat_id, "ذخیره‌سازی پایان یافت. لطفاً نام فایل را وارد کنید:")
+                return
+            else:
+                send_message(chat_id, "⚠️ شما در حال ذخیره‌سازی فایل نیستید")
+                return
         
+        if text.lower() == "/rep":
+            user_files = db_execute(
+                "SELECT filename FROM files WHERE user_id = ?",
+                (user_id_key,),
+                fetchall=True
+            ) or []
+            if not user_files:
+                send_message(chat_id, "⚠️ شما هیچ فایلی ندارید")
+                return
+            
+            keyboard = {"inline_keyboard": []}
+            for name in user_files:
+                keyboard["inline_keyboard"].append([{
+                    "text": f"📁 {name[0]}",
+                    "callback_data": f"rep_file:{name[0]}"
+                }])
+            
+            send_message(chat_id, "لطفاً فایلی را که می‌خواهید به آن اضافه کنید انتخاب نمایید:", keyboard)
+            return
+        
+        if text.lower() == "/pin":
+            user_files = db_execute(
+                "SELECT filename FROM files WHERE user_id = ?",
+                (user_id_key,),
+                fetchall=True
+            ) or []
+            if not user_files:
+                send_message(chat_id, "⚠️ شما هیچ فایلی ندارید")
+                return
+            
+            files_list = "\n".join([f"📁 {name[0]}" for name in user_files])
+            send_message(chat_id, f"<b>فایل‌های شما:</b>\n\n{files_list}")
+            return
+        
+        if text.lower() == "/del":
+            user_files = db_execute(
+                "SELECT filename FROM files WHERE user_id = ?",
+                (user_id_key,),
+                fetchall=True
+            ) or []
+            if not user_files:
+                send_message(chat_id, "⚠️ شما هیچ فایلی ندارید")
+                return
+            
+            keyboard = {"inline_keyboard": []}
+            for name in user_files:
+                keyboard["inline_keyboard"].append([{
+                    "text": f"🗑️ {name[0]}",
+                    "callback_data": f"del_file:{name[0]}"
+                }])
+            
+            send_message(chat_id, "لطفاً فایلی را که می‌خواهید حذف کنید انتخاب نمایید:", keyboard)
+            return
+        
+        # حالت‌های مختلف کاربر
+        if session_mode == "collecting":
+            content_item = {}
+            if "forward_from" in message or "forward_from_chat" in message:
+                content_item["is_forwarded"] = True
+                content_item["forward_info"] = {
+                    "chat_id": message["chat"]["id"],
+                    "message_id": message["message_id"]
+                }
+            else:
+                content_item["is_forwarded"] = False
+            
+            if "text" in message:
+                content_item["type"] = "text"
+                content_item["content"] = message["text"]
+            elif "photo" in message:
+                content_item["type"] = "photo"
+                content_item["file_id"] = message["photo"][-1]["file_id"]
+                content_item["caption"] = message.get("caption", "")
+            elif "video" in message:
+                content_item["type"] = "video"
+                content_item["file_id"] = message["video"]["file_id"]
+                content_item["caption"] = message.get("caption", "")
+            elif "audio" in message:
+                content_item["type"] = "audio"
+                content_item["file_id"] = message["audio"]["file_id"]
+                content_item["caption"] = message.get("caption", "")
+            elif "voice" in message:
+                content_item["type"] = "voice"
+                content_item["file_id"] = message["voice"]["file_id"]
+            elif "document" in message:
+                content_item["type"] = "document"
+                content_item["file_id"] = message["document"]["file_id"]
+                content_item["caption"] = message.get("caption", "")
+            elif "animation" in message:
+                content_item["type"] = "animation"
+                content_item["file_id"] = message["animation"]["file_id"]
+                content_item["caption"] = message.get("caption", "")
+            elif "sticker" in message:
+                content_item["type"] = "sticker"
+                content_item["file_id"] = message["sticker"]["file_id"]
+            else:
+                content_item["type"] = "unsupported"
+            
+            # به‌روزرسانی محتوا در دیتابیس
+            current_content = db_execute(
+                "SELECT content FROM sessions WHERE session_id = ?",
+                (user_id,),
+                fetchone=True
+            )
+            content_list = json.loads(current_content[0]) if current_content and current_content[0] else []
+            content_list.append(content_item)
+            
+            db_execute(
+                "UPDATE sessions SET content = ? WHERE session_id = ?",
+                (json.dumps(content_list), user_id),
+                commit=True
+            )
+            return
+        
+        # حالت نام‌گذاری فایل جدید
+        if session_mode == "naming":
+            filename = text
+            content = db_execute(
+                "SELECT content FROM sessions WHERE session_id = ?",
+                (user_id,),
+                fetchone=True
+            )
+            
+            if content and content[0]:
+                db_execute(
+                    "INSERT INTO files (user_id, filename, content, created_at, size) VALUES (?, ?, ?, ?, ?)",
+                    (user_id_key, filename, content[0], datetime.now().isoformat(), len(content[0])),
+                    commit=True
+                )
+                
+                db_execute(
+                    "UPDATE sessions SET mode = NULL, content = NULL WHERE session_id = ?",
+                    (user_id,),
+                    commit=True
+                )
+                
+                send_message(chat_id, f"✅ فایل با نام <code>{filename}</code> ذخیره شد!")
+            else:
+                send_message(chat_id, "⚠️ خطا در ذخیره‌سازی: محتوایی یافت نشد")
+            return
+        
+        # حالت افزودن به فایل موجود
+        if session_mode == "appending":
+            filename = session[4]  # target_file
+            
+            # دریافت محتوای فعلی فایل
+            file_content = db_execute(
+                "SELECT content FROM files WHERE user_id = ? AND filename = ?",
+                (user_id_key, filename),
+                fetchone=True
+            )
+            content_list = json.loads(file_content[0]) if file_content and file_content[0] else []
+            
+            # ایجاد محتوای جدید
+            content_item = {}
+            if "forward_from" in message or "forward_from_chat" in message:
+                content_item["is_forwarded"] = True
+                content_item["forward_info"] = {
+                    "chat_id": message["chat"]["id"],
+                    "message_id": message["message_id"]
+                }
+            else:
+                content_item["is_forwarded"] = False
+            
+            if "text" in message:
+                content_item["type"] = "text"
+                content_item["content"] = message["text"]
+            elif "photo" in message:
+                content_item["type"] = "photo"
+                content_item["file_id"] = message["photo"][-1]["file_id"]
+                content_item["caption"] = message.get("caption", "")
+            # سایر انواع رسانه‌ها مشابه حالت collecting
+            
+            # افزودن به محتوای موجود
+            content_list.append(content_item)
+            
+            # ذخیره محتوای به‌روزرسانی شده
+            db_execute(
+                "UPDATE files SET content = ?, size = ? WHERE user_id = ? AND filename = ?",
+                (json.dumps(content_list), len(json.dumps(content_list)), user_id_key, filename),
+                commit=True
+            )
+            return
+        
+        # نمایش محتوای فایل
+        file_content = db_execute(
+            "SELECT content FROM files WHERE user_id = ? AND filename = ?",
+            (user_id_key, text),
+            fetchone=True
+        )
+        if file_content and file_content[0]:
+            content = json.loads(file_content[0])
+            send_message(chat_id, f"📦 محتوای فایل <b>{text}</b>:\n")
+            for item in content:
+                if item.get("is_forwarded"):
+                    forward_result = forward_message(
+                        chat_id,
+                        item["forward_info"]["chat_id"],
+                        item["forward_info"]["message_id"]
+                    )
+                    if not forward_result or not forward_result.get("ok"):
+                        if "text" in item:
+                            send_message(chat_id, item["text"])
+                        else:
+                            send_media(
+                                chat_id,
+                                item["type"],
+                                item["file_id"],
+                                item.get("caption", "")
+                            )
+                else:
+                    if item["type"] == "text":
+                        send_message(chat_id, item["content"])
+                    elif item["type"] != "unsupported":
+                        send_media(
+                            chat_id,
+                            item["type"],
+                            item["file_id"],
+                            item.get("caption", "")
+                        )
+            return
+
     except Exception as e:
         logger.error(f"خطا در مدیریت دستور: {e}")
         log_to_db("ERROR", f"Command handling error: {e}")
@@ -671,8 +905,173 @@ def process_update(update):
                     "✅ این شناسه را به کاربر مورد نظر تحویل دهید."
                 )
             
-            # سایر callback ها ...
+            elif callback_data == "users":
+                users = db_execute("SELECT user_id FROM users", fetchall=True) or []
+                keyboard = {"inline_keyboard": []}
+                for uid in users:
+                    display_name = get_user_display_name(uid[0])
+                    keyboard["inline_keyboard"].append([{
+                        "text": f"👤 {display_name}",
+                        "callback_data": f"user_detail:{uid[0]}"
+                    }])
+                send_message(chat_id, f"<b>👥 لیست کاربران ({len(users)}):</b>", keyboard)
             
+            elif callback_data == "files":
+                users = db_execute("SELECT user_id FROM users", fetchall=True) or []
+                keyboard = {"inline_keyboard": []}
+                for uid in users:
+                    display_name = get_user_display_name(uid[0])
+                    keyboard["inline_keyboard"].append([{
+                        "text": f"📁 فایل‌های {display_name}",
+                        "callback_data": f"user_files:{uid[0]}"
+                    }])
+                send_message(chat_id, "لطفاً کاربر مورد نظر را انتخاب کنید:", keyboard)
+            
+            elif callback_data == "stats":
+                total_users = db_execute("SELECT COUNT(*) FROM users", fetchone=True) or (0,)
+                total_files = db_execute("SELECT COUNT(*) FROM files", fetchone=True) or (0,)
+                total_size = db_execute("SELECT SUM(size) FROM files", fetchone=True) or (0,)
+                active_sessions = db_execute("SELECT COUNT(*) FROM sessions WHERE auth_expiry > ?", (time.time(),), fetchone=True) or (0,)
+                
+                stats = f"""
+<b>📊 آمار پیشرفته سیستم:</b>
+👤 کاربران ثبت‌شده: {total_users[0]}
+📁 فایل‌های ذخیره شده: {total_files[0]}
+💾 حجم کل داده‌ها: {total_size[0] / 1024:.2f} کیلوبایت
+🔓 جلسات فعال: {active_sessions[0]}
+🕒 آخرین به‌روزرسانی: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+"""
+                send_message(chat_id, stats)
+            
+            elif callback_data == "logs":
+                logs = db_execute("SELECT timestamp, level, message FROM logs ORDER BY log_id DESC LIMIT 20", fetchall=True) or []
+                if not logs:
+                    send_message(chat_id, "⚠️ هیچ لاگی ثبت نشده است")
+                    return
+                
+                log_text = ""
+                for log in logs:
+                    log_text += f"[{log[0]}] {log[1]}: {log[2]}\n"
+                
+                send_message(chat_id, f"<b>📝 آخرین لاگ‌های سیستم:</b>\n\n<pre>{log_text}</pre>", parse_mode="HTML")
+            
+            elif callback_data.startswith("user_detail:"):
+                user_id = callback_data.split(":", 1)[1]
+                user_info = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+                files_count = db_execute("SELECT COUNT(*) FROM files WHERE user_id = ?", (user_id,), fetchone=True) or (0,)
+                
+                info_text = f"""
+<b>🔍 اطلاعات کاربر:</b>
+🆔 شناسه: <code>{user_id}</code>
+👤 نام: {user_info[3] or 'نامشخص'} {user_info[4] or ''}
+🔗 یوزرنیم: @{user_info[5] or 'نامشخص'}
+📅 تاریخ ایجاد: {user_info[2]}
+📁 تعداد فایل‌ها: {files_count[0]}
+"""
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "🗑️ حذف کاربر", "callback_data": f"delete_user:{user_id}"},
+                            {"text": "📂 مشاهده فایل‌ها", "callback_data": f"list_files:{user_id}"}
+                        ],
+                        [
+                            {"text": "🔄 تمدید دسترسی", "callback_data": f"renew_user:{user_id}"}
+                        ]
+                    ]
+                }
+                send_message(chat_id, info_text, keyboard)
+            
+            elif callback_data.startswith("delete_user:"):
+                user_id_to_delete = callback_data.split(":", 1)[1]
+                if db_execute("SELECT 1 FROM users WHERE user_id = ?", (user_id_to_delete,), fetchone=True):
+                    db_execute("DELETE FROM users WHERE user_id = ?", (user_id_to_delete,), commit=True)
+                    send_message(chat_id, f"✅ شناسه کاربری <code>{user_id_to_delete}</code> با موفقیت حذف شد!")
+                else:
+                    send_message(chat_id, "⚠️ شناسه کاربری یافت نشد")
+            
+            elif callback_data.startswith("list_files:"):
+                user_id_to_view = callback_data.split(":", 1)[1]
+                user_files = db_execute(
+                    "SELECT filename FROM files WHERE user_id = ?",
+                    (user_id_to_view,),
+                    fetchall=True
+                ) or []
+                if not user_files:
+                    send_message(chat_id, "⚠️ هیچ فایلی برای این کاربر یافت نشد")
+                    return
+                keyboard = {"inline_keyboard": []}
+                for filename in user_files:
+                    keyboard["inline_keyboard"].append([{
+                        "text": f"📁 {filename[0]}",
+                        "callback_data": f"view_file:{user_id_to_view}:{filename[0]}"
+                    }])
+                send_message(chat_id, f"<b>🗂 فایل‌های کاربر {get_user_display_name(user_id_to_view)}:</b>", keyboard)
+            
+            elif callback_data.startswith("view_file:"):
+                parts = callback_data.split(":", 2)
+                if len(parts) >= 3:
+                    user_id_to_view = parts[1]
+                    filename = parts[2]
+                    file_content = db_execute(
+                        "SELECT content FROM files WHERE user_id = ? AND filename = ?",
+                        (user_id_to_view, filename),
+                        fetchone=True
+                    )
+                    if not file_content or not file_content[0]:
+                        send_message(chat_id, "⚠️ فایل مورد نظر یافت نشد")
+                        return
+                    content = json.loads(file_content[0])
+                    send_message(chat_id, f"<b>📦 محتوای فایل {filename}:</b>\n")
+                    for item in content:
+                        if item.get("is_forwarded"):
+                            forward_result = forward_message(
+                                chat_id,
+                                item["forward_info"]["chat_id"],
+                                item["forward_info"]["message_id"]
+                            )
+                            if not forward_result or not forward_result.get("ok"):
+                                if "text" in item:
+                                    send_message(chat_id, item["text"])
+                                else:
+                                    send_media(
+                                        chat_id,
+                                        item["type"],
+                                        item["file_id"],
+                                        item.get("caption", "")
+                                    )
+                        else:
+                            if item["type"] == "text":
+                                send_message(chat_id, item["content"])
+                            elif item["type"] != "unsupported":
+                                send_media(
+                                    chat_id,
+                                    item["type"],
+                                    item["file_id"],
+                                    item.get("caption", "")
+                                )
+            
+            elif callback_data.startswith("rep_file:"):
+                filename = callback_data.split(":", 1)[1]
+                db_execute(
+                    "UPDATE sessions SET mode = 'appending', target_file = ?, content = '[]' WHERE session_id = ?",
+                    (filename, str(chat_id)),
+                    commit=True
+                )
+                send_message(chat_id, f"📤 حالت افزودن به فایل <b>{filename}</b> فعال شد!\nهمه پیام‌های شما به این فایل اضافه می‌شوند.\nبرای پایان /end ارسال کنید.")
+            
+            elif callback_data.startswith("del_file:"):
+                filename = callback_data.split(":", 1)[1]
+                db_execute(
+                    "DELETE FROM files WHERE user_id IN (SELECT user_id FROM sessions WHERE session_id = ?) AND filename = ?",
+                    (str(chat_id), filename),
+                    commit=True
+                )
+                
+                if db_execute("SELECT changes()", fetchone=True)[0] > 0:
+                    send_message(chat_id, f"✅ فایل <code>{filename}</code> با موفقیت حذف شد!")
+                else:
+                    send_message(chat_id, "⚠️ فایل مورد نظر یافت نشد")
+                
     except Exception as e:
         logger.error(f"خطا در پردازش آپدیت: {e}\n{update}")
         log_to_db("ERROR", f"Update processing error: {e}")
