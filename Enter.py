@@ -22,7 +22,8 @@ app = Flask(__name__)
 
 # Global state (for temporary user data, consider persisting this in a real app)
 secure_mode = False
-user_data = {}  # Stores awaiting states and calculator message IDs
+# user_data now stores calculator_expression in memory for speed
+user_data = {}  # Stores awaiting states, calculator message IDs, and calculator expressions
 
 # --- Database Setup ---
 conn = sqlite3.connect('database.db', check_same_thread=False)
@@ -199,18 +200,6 @@ def delete_all_files_for_user(user_id):
     c.execute("DELETE FROM files WHERE user_id=?", (user_id,))
     conn.commit()
 
-def get_calculator_expression(user_id):
-    """Retrieves the current calculator expression for a user."""
-    c.execute("SELECT content FROM files WHERE user_id=? AND file_name='calculator'", (user_id,))
-    result = c.fetchone()
-    return result[0] if result else ""
-
-def update_calculator_expression(user_id, expression):
-    """Updates the calculator expression for a user."""
-    c.execute("INSERT OR REPLACE INTO files (user_id, file_name, content_type, content) VALUES (?, 'calculator', 'text', ?)",
-              (user_id, expression))
-    conn.commit()
-
 # --- Calculator Logic ---
 def show_calculator(chat_id, user_id, message_id=None):
     """Displays or updates the 17-button calculator panel."""
@@ -218,7 +207,7 @@ def show_calculator(chat_id, user_id, message_id=None):
         [{"text": "7", "callback_data": "calc_7"}, {"text": "8", "callback_data": "calc_8"},
          {"text": "9", "callback_data": "calc_9"}, {"text": "/", "callback_data": "calc_/"}],
         [{"text": "4", "callback_data": "calc_4"}, {"text": "5", "callback_data": "calc_5"},
-         {"text": "6", "callback_data": "calc_6"}, {"text": "*", "callback_data": "calc_*}"}], # Corrected: calc_*
+         {"text": "6", "callback_data": "calc_6"}, {"text": "*", "callback_data": "calc_*}"}],
         [{"text": "1", "callback_data": "calc_1"}, {"text": "2", "callback_data": "calc_2"},
          {"text": "3", "callback_data": "calc_3"}, {"text": "-", "callback_data": "calc_-"}],
         [{"text": "0", "callback_data": "calc_0"}, {"text": ".", "callback_data": "calc_."},
@@ -226,7 +215,8 @@ def show_calculator(chat_id, user_id, message_id=None):
         [{"text": "C", "callback_data": "calc_C"}]
     ])
 
-    expression = get_calculator_expression(user_id)
+    # Get current expression from in-memory user_data
+    expression = user_data.setdefault(user_id, {}).get('calculator_expression', '')
 
     if message_id:
         edit_message_text(chat_id, message_id, f"ماشین حساب: {expression}", keyboard)
@@ -234,13 +224,14 @@ def show_calculator(chat_id, user_id, message_id=None):
         response = send_message(chat_id, f"ماشین حساب: {expression}", keyboard)
         if response and response.get('ok'):
             message_id = response['result']['message_id']
-            user_data.setdefault(user_id, {})['calculator_message_id'] = message_id
+            user_data[user_id]['calculator_message_id'] = message_id
         else:
             logger.error(f"Error sending initial calculator message: {response}")
 
 def handle_calculator_callback(chat_id, user_id, data):
     """Handles calculator button presses."""
-    expression = get_calculator_expression(user_id)
+    # Get current expression from in-memory user_data
+    expression = user_data.setdefault(user_id, {}).get('calculator_expression', '')
     char = data[5:]
     calc_message_id = user_data.get(user_id, {}).get('calculator_message_id')
 
@@ -255,9 +246,10 @@ def handle_calculator_callback(chat_id, user_id, data):
                 if calc_message_id:
                     delete_message(chat_id, calc_message_id)
                     user_data[user_id].pop('calculator_message_id', None)
+                user_data[user_id]['calculator_expression'] = "" # Reset expression after special calculation
             else:
                 send_message(chat_id, f"نتیجه: {result}")
-                update_calculator_expression(user_id, "")  # Reset calculator
+                user_data[user_id]['calculator_expression'] = ""  # Reset expression after normal calculation
                 if calc_message_id:
                     show_calculator(chat_id, user_id, calc_message_id)
                 else:
@@ -265,20 +257,19 @@ def handle_calculator_callback(chat_id, user_id, data):
         except Exception as e:
             logger.error(f"Calculator error for user {user_id}: {e}")
             send_message(chat_id, "عبارت نامعتبر است.")
-            update_calculator_expression(user_id, "")  # Reset on error
+            user_data[user_id]['calculator_expression'] = ""  # Reset expression on error
             if calc_message_id:
                 show_calculator(chat_id, user_id, calc_message_id)
             else:
                 show_calculator(chat_id, user_id)
     elif char == 'C':
-        update_calculator_expression(user_id, "")
+        user_data[user_id]['calculator_expression'] = "" # Clear expression
         if calc_message_id:
             show_calculator(chat_id, user_id, calc_message_id)
         else:
             show_calculator(chat_id, user_id)
     else:
-        expression += char
-        update_calculator_expression(user_id, expression)
+        user_data[user_id]['calculator_expression'] = expression + char # Append character
         if calc_message_id:
             show_calculator(chat_id, user_id, calc_message_id)
         else:
@@ -318,6 +309,8 @@ def handle_admin_reactivation(chat_id, user_id, text):
             secure_mode = False
             send_message(chat_id, "ربات فعال شد.")
             user_data[user_id]['awaiting_hi'] = False
+            # Show admin panel immediately after reactivation
+            show_admin_panel(chat_id)
             return True
     return False
 
@@ -489,6 +482,18 @@ def handle_authentication_attempt(chat_id, user_id, text):
                 send_message(chat_id, "شناسه یا پسورد اشتباه است.")
             return True
     return False
+
+# --- Admin Panel Display Function ---
+def show_admin_panel(chat_id):
+    """Displays the admin panel keyboard."""
+    keyboard = create_inline_keyboard([
+        [{"text": "ایجاد شناسه", "callback_data": "admin_create_id"}],
+        [{"text": "مشاهده کاربران", "callback_data": "admin_view_users"}],
+        [{"text": "حذف شناسه کاربر", "callback_data": "admin_delete_id"}],
+        [{"text": "نوتیفیکیشن", "callback_data": "admin_notify"}],
+        [{"text": "آمار", "callback_data": "admin_stats"}]
+    ])
+    send_message(chat_id, "پنل ادمین:", keyboard)
 
 # --- Callback Query Handlers ---
 def handle_admin_panel_callback(chat_id, user_id, data):
@@ -688,14 +693,7 @@ def webhook():
 
         # Handle admin panel command separately as it doesn't require authentication
         if text == '/admin' and user_id == ADMIN_ID:
-            keyboard = create_inline_keyboard([
-                [{"text": "ایجاد شناسه", "callback_data": "admin_create_id"}],
-                [{"text": "مشاهده کاربران", "callback_data": "admin_view_users"}],
-                [{"text": "حذف شناسه کاربر", "callback_data": "admin_delete_id"}],
-                [{"text": "نوتیفیکیشن", "callback_data": "admin_notify"}],
-                [{"text": "آمار", "callback_data": "admin_stats"}]
-            ])
-            send_message(chat_id, "پنل ادمین:", keyboard)
+            show_admin_panel(chat_id)
             return 'ok'
 
         # Handle awaiting states first
@@ -801,3 +799,4 @@ if __name__ == '__main__':
     threading.Thread(target=keep_alive, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
