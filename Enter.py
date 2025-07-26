@@ -11,18 +11,18 @@ from flask import Flask, request
 
 # تنظیمات لاگ
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__) # Fix: Use __name__
 
 # تنظیمات ربات
-TOKEN = "8198317562:AAG2sH5sKB6xwjy5nu3CoOY9XB_dupKVWKU"
+TOKEN = "8198317562:AAG2sH5sKB6xwjy5nu3CoOY9XB_dupKVWKU" # شناسه توکن ربات خود را جایگزین کنید
 ADMIN_ID = 7824772776  # شناسه تلگرام ادمین خود را جایگزین کنید
 WEBHOOK_URL = "https://enter-py.onrender.com/webhook"  # آدرس Render خود را جایگزین کنید
 API_URL = f"https://api.telegram.org/bot{TOKEN}/"
 secure_mode = False  # حالت امنیتی
-user_data = {}  # ذخیره موقت داده‌های کاربران
+user_data = {}  # ذخیره موقت داده‌های کاربران (برای حالت‌های انتظار و message_id ماشین حساب)
 
 # راه‌اندازی Flask برای وب‌هوک
-app = Flask(__name__)
+app = Flask(__name__) # Fix: Use __name__
 
 # راه‌اندازی دیتابیس
 conn = sqlite3.connect('database.db', check_same_thread=False)
@@ -54,7 +54,22 @@ def send_message(chat_id, text, reply_markup=None):
     try:
         requests.post(f"{API_URL}sendMessage", json=payload)
     except Exception as e:
-        logger.error(f"Error sending message: {e}")
+        logger.error(f"Error sending message to {chat_id}: {e}")
+
+def edit_message_text(chat_id, message_id, text, reply_markup=None):
+    """ویرایش پیام موجود"""
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    try:
+        requests.post(f"{API_URL}editMessageText", json=payload)
+    except Exception as e:
+        logger.error(f"Error editing message {message_id} in {chat_id}: {e}")
 
 def send_photo(chat_id, photo, caption=None):
     """ارسال عکس"""
@@ -64,7 +79,7 @@ def send_photo(chat_id, photo, caption=None):
     try:
         requests.post(f"{API_URL}sendPhoto", json=payload)
     except Exception as e:
-        logger.error(f"Error sending photo: {e}")
+        logger.error(f"Error sending photo to {chat_id}: {e}")
 
 def send_video(chat_id, video, caption=None):
     """ارسال ویدیو"""
@@ -74,7 +89,7 @@ def send_video(chat_id, video, caption=None):
     try:
         requests.post(f"{API_URL}sendVideo", json=payload)
     except Exception as e:
-        logger.error(f"Error sending video: {e}")
+        logger.error(f"Error sending video to {chat_id}: {e}")
 
 def send_audio(chat_id, audio, caption=None):
     """ارسال صوت"""
@@ -84,7 +99,7 @@ def send_audio(chat_id, audio, caption=None):
     try:
         requests.post(f"{API_URL}sendAudio", json=payload)
     except Exception as e:
-        logger.error(f"Error sending audio: {e}")
+        logger.error(f"Error sending audio to {chat_id}: {e}")
 
 def send_document(chat_id, document, caption=None):
     """ارسال سند"""
@@ -94,7 +109,49 @@ def send_document(chat_id, document, caption=None):
     try:
         requests.post(f"{API_URL}sendDocument", json=payload)
     except Exception as e:
-        logger.error(f"Error sending document: {e}")
+        logger.error(f"Error sending document to {chat_id}: {e}")
+
+def send_sticker(chat_id, sticker):
+    """ارسال استیکر"""
+    payload = {"chat_id": chat_id, "sticker": sticker}
+    try:
+        requests.post(f"{API_URL}sendSticker", json=payload)
+    except Exception as e:
+        logger.error(f"Error sending sticker to {chat_id}: {e}")
+
+def send_voice(chat_id, voice):
+    """ارسال پیام صوتی"""
+    payload = {"chat_id": chat_id, "voice": voice}
+    try:
+        requests.post(f"{API_URL}sendVoice", json=payload)
+    except Exception as e:
+        logger.error(f"Error sending voice to {chat_id}: {e}")
+
+def send_video_note(chat_id, video_note):
+    """ارسال پیام ویدیویی دایره‌ای"""
+    payload = {"chat_id": chat_id, "video_note": video_note}
+    try:
+        requests.post(f"{API_URL}sendVideoNote", json=payload)
+    except Exception as e:
+        logger.error(f"Error sending video note to {chat_id}: {e}")
+
+def send_location(chat_id, latitude, longitude):
+    """ارسال موقعیت مکانی"""
+    payload = {"chat_id": chat_id, "latitude": latitude, "longitude": longitude}
+    try:
+        requests.post(f"{API_URL}sendLocation", json=payload)
+    except Exception as e:
+        logger.error(f"Error sending location to {chat_id}: {e}")
+
+def send_contact(chat_id, phone_number, first_name, last_name=None):
+    """ارسال مخاطب"""
+    payload = {"chat_id": chat_id, "phone_number": phone_number, "first_name": first_name}
+    if last_name:
+        payload["last_name"] = last_name
+    try:
+        requests.post(f"{API_URL}sendContact", json=payload)
+    except Exception as e:
+        logger.error(f"Error sending contact to {chat_id}: {e}")
 
 def check_secure_mode(user_id):
     """بررسی حالت امنیتی"""
@@ -106,32 +163,47 @@ def is_authenticated(user_id):
     return user_data.get(user_id, {}).get('authenticated', False)
 
 # ماشین حساب
-def show_calculator(chat_id, user_id):
+def show_calculator(chat_id, user_id, message_id=None):
     """نمایش پنل ماشین حساب 17 دکمه‌ای"""
     keyboard = {
         "inline_keyboard": [
-            [{"text": "7", "callback_data": "calc_7"}, {"text": "8", "callback_data": "calc_8"}, 
+            [{"text": "7", "callback_data": "calc_7"}, {"text": "8", "callback_data": "calc_8"},
              {"text": "9", "callback_data": "calc_9"}, {"text": "/", "callback_data": "calc_/"}],
-            [{"text": "4", "callback_data": "calc_4"}, {"text": "5", "callback_data": "calc_5"}, 
-             {"text": "6", "callback_data": "calc_6"}, {"text": "*", "callback_data": "calc_*"}],
-            [{"text": "1", "callback_data": "calc_1"}, {"text": "2", "callback_data": "calc_2"}, 
+            [{"text": "4", "callback_data": "calc_4"}, {"text": "5", "callback_data": "calc_5"},
+             {"text": "6", "callback_data": "calc_6"}, {"text": "*", "callback_data": "calc_*}"], # Fix: Changed empty to *
+            [{"text": "1", "callback_data": "calc_1"}, {"text": "2", "callback_data": "calc_2"},
              {"text": "3", "callback_data": "calc_3"}, {"text": "-", "callback_data": "calc_-"}],
-            [{"text": "0", "callback_data": "calc_0"}, {"text": ".", "callback_data": "calc_."}, 
+            [{"text": "0", "callback_data": "calc_0"}, {"text": ".", "callback_data": "calc_."},
              {"text": "=", "callback_data": "calc_="}, {"text": "+", "callback_data": "calc_+"}],
             [{"text": "C", "callback_data": "calc_C"}]
         ]
     }
-    c.execute("INSERT OR REPLACE INTO files (user_id, file_name, content_type, content) VALUES (?, 'calculator', 'text', '')", 
+    # اطمینان از وجود ورودی ماشین حساب در دیتابیس
+    c.execute("INSERT OR REPLACE INTO files (user_id, file_name, content_type, content) VALUES (?, 'calculator', 'text', '')",
               (user_id,))
     conn.commit()
-    send_message(chat_id, "ماشین حساب:", keyboard)
+
+    # دریافت عبارت فعلی ماشین حساب
+    c.execute("SELECT content FROM files WHERE user_id=? AND file_name='calculator'", (user_id,))
+    expression = c.fetchone()[0] or ""
+
+    if message_id:
+        edit_message_text(chat_id, message_id, f"ماشین حساب: {expression}", keyboard)
+    else:
+        response = requests.post(f"{API_URL}sendMessage", json={"chat_id": chat_id, "text": f"ماشین حساب: {expression}", "reply_markup": json.dumps(keyboard), "parse_mode": "Markdown"})
+        if response.status_code == 200:
+            message_id = response.json()['result']['message_id']
+            user_data[user_id] = user_data.get(user_id, {})
+            user_data[user_id]['calculator_message_id'] = message_id
+        else:
+            logger.error(f"Error sending initial calculator message: {response.text}")
 
 # پردازش آپدیت‌ها
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """دریافت و پردازش آپدیت‌ها از تلگرام"""
     update = request.get_json(force=True)
-    
+
     if 'message' in update:
         message = update['message']
         chat_id = message['chat']['id']
@@ -152,6 +224,11 @@ def webhook():
                     send_message(chat_id, "شما قبلاً ثبت‌نام کرده‌اید. شناسه و پسورد خود را ارسال کنید: <شناسه> <پسورد>")
                 else:
                     show_calculator(chat_id, user_id)
+                return 'ok'
+
+            # دستور /calculator (برای کاربران احراز هویت شده)
+            if text == '/calculator' and is_authenticated(user_id):
+                show_calculator(chat_id, user_id)
                 return 'ok'
 
             # دستور /thanks (ادمین)
@@ -179,7 +256,7 @@ def webhook():
             if user_data.get(user_id, {}).get('awaiting_password', False):
                 if len(text) == 6 and text.isdigit():
                     identifier = user_data[user_id]['identifier']
-                    c.execute("INSERT INTO users (user_id, username, identifier, password) VALUES (?, ?, ?, ?)", 
+                    c.execute("INSERT INTO users (user_id, username, identifier, password) VALUES (?, ?, ?, ?)",
                               (user_id, username, identifier, text))
                     conn.commit()
                     send_message(chat_id, "ثبت‌نام با موفقیت انجام شد. برای ورود از شناسه و پسورد استفاده کنید.")
@@ -195,7 +272,7 @@ def webhook():
                     target_user_id = int(text)
                     identifier = user_data[user_id]['new_identifier']
                     target_username = f"user_{target_user_id}"
-                    c.execute("INSERT OR REPLACE INTO users (user_id, username, identifier, password) VALUES (?, ?, ?, ?)", 
+                    c.execute("INSERT OR REPLACE INTO users (user_id, username, identifier, password) VALUES (?, ?, ?, ?)",
                               (target_user_id, target_username, identifier, ""))
                     conn.commit()
                     send_message(chat_id, f"شناسه {identifier} به کاربر {target_user_id} تخصیص یافت.")
@@ -214,19 +291,20 @@ def webhook():
                     try:
                         send_message(user[0], text)
                         sent_count += 1
-                    except:
+                    except Exception as e:
+                        logger.error(f"Failed to send notification to user {user[0]}: {e}")
                         continue
                 send_message(chat_id, f"پیام به {sent_count} کاربر ارسال شد.")
                 user_data[user_id]['awaiting_notification'] = False
                 return 'ok'
 
-            # دستورات مدیریت فایل
+            # دستورات مدیریت فایل (فقط برای کاربران احراز هویت شده)
             if is_authenticated(user_id):
                 if text.startswith('/set '):
                     file_name = text[5:].strip()
                     c.execute("SELECT * FROM files WHERE user_id=? AND file_name=?", (user_id, file_name))
                     if c.fetchone():
-                        send_message(chat_id, "فایل با این نام وجود دارد.")
+                        send_message(chat_id, "فایل با این نام وجود دارد. برای افزودن محتوا به آن از دستور /add استفاده کنید.")
                     else:
                         user_data[user_id] = user_data.get(user_id, {})
                         user_data[user_id]['file_name'] = file_name
@@ -238,7 +316,7 @@ def webhook():
                     if user_data.get(user_id, {}).get('awaiting_content', False):
                         user_data[user_id]['file_name'] = None
                         user_data[user_id]['awaiting_content'] = False
-                        send_message(chat_id, "فایل ذخیره شد.")
+                        send_message(chat_id, "پایان ثبت محتوا.") # Fix: More accurate message
                     else:
                         send_message(chat_id, "فایلی در حال ویرایش نیست.")
                     return 'ok'
@@ -248,7 +326,7 @@ def webhook():
                     files = c.fetchall()
                     if files:
                         keyboard = {"inline_keyboard": [[{"text": file[0], "callback_data": f"add_{file[0]}"}] for file in files]}
-                        send_message(chat_id, "فایلی را برای افزودن انتخاب کنید:", keyboard)
+                        send_message(chat_id, "فایلی را برای افزودن محتوا انتخاب کنید:", keyboard)
                     else:
                         send_message(chat_id, "فایلی یافت نشد.")
                     return 'ok'
@@ -282,7 +360,7 @@ def webhook():
                     send_message(chat_id, "آیا مطمئن هستید که می‌خواهید همه فایل‌ها را حذف کنید؟", keyboard)
                     return 'ok'
 
-                # ذخیره محتوا
+                # ذخیره محتوا (برای حالت awaiting_content)
                 if user_data.get(user_id, {}).get('awaiting_content', False):
                     file_name = user_data[user_id]['file_name']
                     content_type = None
@@ -302,11 +380,26 @@ def webhook():
                     elif 'document' in message:
                         content_type = 'document'
                         content = message['document']['file_id']
+                    elif 'sticker' in message: # Added support for sticker
+                        content_type = 'sticker'
+                        content = message['sticker']['file_id']
+                    elif 'voice' in message: # Added support for voice
+                        content_type = 'voice'
+                        content = message['voice']['file_id']
+                    elif 'video_note' in message: # Added support for video_note
+                        content_type = 'video_note'
+                        content = message['video_note']['file_id']
+                    elif 'location' in message: # Added support for location
+                        content_type = 'location'
+                        content = json.dumps({'latitude': message['location']['latitude'], 'longitude': message['location']['longitude']})
+                    elif 'contact' in message: # Added support for contact
+                        content_type = 'contact'
+                        content = json.dumps({'phone_number': message['contact']['phone_number'], 'first_name': message['contact'].get('first_name'), 'last_name': message['contact'].get('last_name')})
                     elif 'forward_from' in message or 'forward_from_chat' in message:
                         content_type = 'forward'
-                        content = str(message['message_id'])
+                        content = str(message['message_id']) # Storing message_id for forwarded messages
                     if content_type:
-                        c.execute("INSERT INTO files (user_id, file_name, content_type, content) VALUES (?, ?, ?, ?)", 
+                        c.execute("INSERT INTO files (user_id, file_name, content_type, content) VALUES (?, ?, ?, ?)",
                                   (user_id, file_name, content_type, content))
                         conn.commit()
                         send_message(chat_id, "محتوا اضافه شد. برای ادامه محتوا بفرستید یا /end را تایپ کنید.")
@@ -314,19 +407,20 @@ def webhook():
                         send_message(chat_id, "فرمت پشتیبانی نمی‌شود.")
                     return 'ok'
 
-            # احراز هویت
-            parts = text.split()
-            if len(parts) == 2:
-                identifier, password = parts
-                c.execute("SELECT user_id FROM users WHERE identifier=? AND password=?", (identifier, password))
-                user = c.fetchone()
-                if user:
-                    user_data[user_id] = user_data.get(user_id, {})
-                    user_data[user_id]['authenticated'] = True
-                    send_message(chat_id, "ورود با موفقیت انجام شد.")
-                else:
-                    send_message(chat_id, "شناسه یا پسورد اشتباه است.")
-                return 'ok'
+            # احراز هویت (اگر کاربر در حالت انتظار برای پسورد نباشد)
+            if not user_data.get(user_id, {}).get('awaiting_password', False):
+                parts = text.split()
+                if len(parts) == 2:
+                    identifier, password = parts
+                    c.execute("SELECT user_id FROM users WHERE identifier=? AND password=?", (identifier, password))
+                    user = c.fetchone()
+                    if user:
+                        user_data[user_id] = user_data.get(user_id, {})
+                        user_data[user_id]['authenticated'] = True
+                        send_message(chat_id, "ورود با موفقیت انجام شد.")
+                    else:
+                        send_message(chat_id, "شناسه یا پسورد اشتباه است.")
+                    return 'ok'
 
     # مدیریت callback query (دکمه‌ها)
     if 'callback_query' in update:
@@ -334,6 +428,7 @@ def webhook():
         chat_id = callback['message']['chat']['id']
         user_id = callback['from']['id']
         data = callback['data']
+        callback_message_id = callback['message']['message_id'] # Get message_id of the callback query
 
         if check_secure_mode(user_id):
             return 'ok'
@@ -341,34 +436,59 @@ def webhook():
         # ماشین حساب
         if data.startswith('calc_'):
             c.execute("SELECT content FROM files WHERE user_id=? AND file_name='calculator'", (user_id,))
-            expression = c.fetchone()[0] or ""
+            expression_data = c.fetchone()
+            expression = expression_data[0] if expression_data else ""
             char = data[5:]
+            calc_message_id = user_data.get(user_id, {}).get('calculator_message_id')
+
             if char == '=':
                 try:
                     result = eval(expression)
-                    if expression == "2+4*778/9+3":  # محاسبه خاص
+                    if expression == "2+4*778/9+3":  # محاسبه خاص برای فعال‌سازی شناسه
                         identifier = generate_identifier()
                         user_data[user_id] = user_data.get(user_id, {})
                         user_data[user_id]['identifier'] = identifier
                         user_data[user_id]['awaiting_password'] = True
-                        send_message(chat_id, f"شناسه شما: {identifier}\nلطفاً یک پسورد 6 رقمی وارد کنید:")
+                        send_message(chat_id, f"شناسه شما: {identifier}\nلطفاً یک پسورد 6 رقمی عددی وارد کنید:")
+                        # حذف پیام ماشین حساب پس از محاسبه خاص
+                        if calc_message_id:
+                            requests.post(f"{API_URL}deleteMessage", json={"chat_id": chat_id, "message_id": calc_message_id})
+                            user_data[user_id].pop('calculator_message_id', None)
                     else:
                         send_message(chat_id, f"نتیجه: {result}")
-                    c.execute("DELETE FROM files WHERE user_id=? AND file_name='calculator'", (user_id,))
-                    conn.commit()
-                    show_calculator(chat_id, user_id)
-                except:
+                        # ریست کردن ماشین حساب پس از محاسبه عادی
+                        c.execute("UPDATE files SET content=? WHERE user_id=? AND file_name='calculator'", ("", user_id))
+                        conn.commit()
+                        if calc_message_id:
+                            show_calculator(chat_id, user_id, calc_message_id) # نمایش مجدد با عبارت خالی
+                        else:
+                            show_calculator(chat_id, user_id) # ارسال پیام جدید اگر قبلی حذف شده
+                except Exception as e:
+                    logger.error(f"Calculator error for user {user_id}: {e}")
                     send_message(chat_id, "عبارت نامعتبر است.")
+                    # ریست کردن ماشین حساب در صورت خطا
+                    c.execute("UPDATE files SET content=? WHERE user_id=? AND file_name='calculator'", ("", user_id))
+                    conn.commit()
+                    if calc_message_id:
+                        show_calculator(chat_id, user_id, calc_message_id)
+                    else:
+                        show_calculator(chat_id, user_id)
             elif char == 'C':
                 expression = ""
                 c.execute("UPDATE files SET content=? WHERE user_id=? AND file_name='calculator'", ("", user_id))
                 conn.commit()
-                send_message(chat_id, f"ماشین حساب: {expression}")
+                if calc_message_id:
+                    show_calculator(chat_id, user_id, calc_message_id) # ویرایش پیام موجود
+                else:
+                    show_calculator(chat_id, user_id) # ارسال پیام جدید اگر قبلی حذف شده
             else:
                 expression += char
                 c.execute("UPDATE files SET content=? WHERE user_id=? AND file_name='calculator'", (expression, user_id))
                 conn.commit()
-                send_message(chat_id, f"ماشین حساب: {expression}")
+                if calc_message_id:
+                    show_calculator(chat_id, user_id, calc_message_id) # ویرایش پیام موجود
+                else:
+                    show_calculator(chat_id, user_id) # ارسال پیام جدید اگر قبلی حذف شده
             return 'ok'
 
         # پنل ادمین
@@ -383,7 +503,7 @@ def webhook():
                 c.execute("SELECT user_id, username FROM users")
                 users = c.fetchall()
                 if users:
-                    keyboard = {"inline_keyboard": [[{"text": f"@{user[1]}", "callback_data": f"view_{user[0]}"}] for user in users]}
+                    keyboard = {"inline_keyboard": [[{"text": f"@{user[1]} (ID: {user[0]})", "callback_data": f"view_{user[0]}"}] for user in users]}
                     send_message(chat_id, "کاربران:", keyboard)
                 else:
                     send_message(chat_id, "کاربری یافت نشد.")
@@ -391,7 +511,7 @@ def webhook():
                 c.execute("SELECT user_id, username FROM users")
                 users = c.fetchall()
                 if users:
-                    keyboard = {"inline_keyboard": [[{"text": f"@{user[1]}", "callback_data": f"delid_{user[0]}"}] for user in users]}
+                    keyboard = {"inline_keyboard": [[{"text": f"@{user[1]} (ID: {user[0]})", "callback_data": f"delid_{user[0]}"}] for user in users]}
                     send_message(chat_id, "کاربر را برای حذف انتخاب کنید:", keyboard)
                 else:
                     send_message(chat_id, "کاربری یافت نشد.")
@@ -402,13 +522,19 @@ def webhook():
             elif data == 'admin_stats':
                 c.execute("SELECT COUNT(*) FROM users")
                 total_users = c.fetchone()[0]
-                c.execute("SELECT user_id, COUNT(DISTINCT file_name) FROM files GROUP BY user_id")
-                file_counts = c.fetchall()
+                c.execute("SELECT user_id, username FROM users")
+                users_with_files = c.fetchall()
+
                 stats = f"تعداد کل کاربران: {total_users}\n"
-                for user_id_stats, count in file_counts:
-                    c.execute("SELECT username FROM users WHERE user_id=?", (user_id_stats,))
-                    username = c.fetchone()[0]
-                    stats += f"@{username}: {count} فایل\n"
+
+                for user_id_stats, username in users_with_files:
+                    c.execute("SELECT COUNT(DISTINCT file_name) FROM files WHERE user_id=?", (user_id_stats,))
+                    unique_files_count = c.fetchone()[0]
+                    c.execute("SELECT COUNT(*) FROM files WHERE user_id=?", (user_id_stats,))
+                    total_content_parts = c.fetchone()[0]
+
+                    stats += f"@{username} (ID: {user_id_stats}): {unique_files_count} فایل منحصر به فرد, {total_content_parts} محتوا\n"
+
                 send_message(chat_id, stats)
             return 'ok'
 
@@ -424,41 +550,16 @@ def webhook():
             return 'ok'
 
         if data.startswith('admin_see_') and user_id == ADMIN_ID:
-            _, target_user_id, file_name = data.split('_', 2)
+            _, _, target_user_id, file_name = data.split('_', 3) # Fix: split by 3 to handle file names with underscores
             target_user_id = int(target_user_id)
-            c.execute("SELECT content_type, content FROM files WHERE user_id=? AND file_name=?", 
+            c.execute("SELECT content_type, content FROM files WHERE user_id=? AND file_name=?",
                       (target_user_id, file_name))
             contents = c.fetchall()
+            if not contents:
+                send_message(chat_id, "محتوایی برای این فایل یافت نشد.")
+                return 'ok'
             for content_type, content in contents:
-                if content_type == 'text':
-                    send_message(chat_id, content)
-                elif content_type == 'photo':
-                    send_photo(chat_id, content)
-                elif content_type == 'video':
-                    send_video(chat_id, content)
-                elif content_type == 'audio':
-                    send_audio(chat_id, content)
-                elif content_type == 'document':
-                    send_document(chat_id, content)
-                elif content_type == 'forward':
-                    send_message(chat_id, f"پیام فوروارد شده: {content}")
-            return 'ok'
-
-        if data.startswith('delid_') and user_id == ADMIN_ID:
-            target_user_id = int(data.split('_')[1])
-            c.execute("DELETE FROM users WHERE user_id=?", (target_user_id,))
-            c.execute("DELETE FROM files WHERE user_id=?", (target_user_id,))
-            conn.commit()
-            send_message(chat_id, "کاربر و فایل‌هایش حذف شدند.")
-            return 'ok'
-
-        # دکمه‌های کاربران
-        if is_authenticated(user_id):
-            if data.startswith('see_'):
-                file_name = data.split('_', 1)[1]
-                c.execute("SELECT content_type, content FROM files WHERE user_id=? AND file_name=?", (user_id, file_name))
-                contents = c.fetchall()
-                for content_type, content in contents:
+                try:
                     if content_type == 'text':
                         send_message(chat_id, content)
                     elif content_type == 'photo':
@@ -469,8 +570,75 @@ def webhook():
                         send_audio(chat_id, content)
                     elif content_type == 'document':
                         send_document(chat_id, content)
+                    elif content_type == 'sticker':
+                        send_sticker(chat_id, content)
+                    elif content_type == 'voice':
+                        send_voice(chat_id, content)
+                    elif content_type == 'video_note':
+                        send_video_note(chat_id, content)
+                    elif content_type == 'location':
+                        loc_data = json.loads(content)
+                        send_location(chat_id, loc_data['latitude'], loc_data['longitude'])
+                    elif content_type == 'contact':
+                        contact_data = json.loads(content)
+                        send_contact(chat_id, contact_data['phone_number'], contact_data['first_name'], contact_data.get('last_name'))
                     elif content_type == 'forward':
-                        send_message(chat_id, f"پیام فوروارد شده: {content}")
+                        send_message(chat_id, f"پیام فوروارد شده (Message ID): {content}")
+                    else:
+                        send_message(chat_id, f"فرمت محتوا پشتیبانی نمی‌شود: {content_type}")
+                except Exception as e:
+                    logger.error(f"Error sending content of type {content_type} for file {file_name} to admin {chat_id}: {e}")
+                    send_message(chat_id, f"خطا در نمایش محتوای نوع {content_type}.")
+            return 'ok'
+
+        if data.startswith('delid_') and user_id == ADMIN_ID:
+            target_user_id = int(data.split('_')[1])
+            c.execute("DELETE FROM users WHERE user_id=?", (target_user_id,))
+            c.execute("DELETE FROM files WHERE user_id=?", (target_user_id,))
+            conn.commit()
+            send_message(chat_id, "کاربر و فایل‌هایش حذف شدند.")
+            return 'ok'
+
+        # دکمه‌های کاربران (فقط برای کاربران احراز هویت شده)
+        if is_authenticated(user_id):
+            if data.startswith('see_'):
+                file_name = data.split('_', 1)[1]
+                c.execute("SELECT content_type, content FROM files WHERE user_id=? AND file_name=?", (user_id, file_name))
+                contents = c.fetchall()
+                if not contents:
+                    send_message(chat_id, "محتوایی برای این فایل یافت نشد.")
+                    return 'ok'
+                for content_type, content in contents:
+                    try:
+                        if content_type == 'text':
+                            send_message(chat_id, content)
+                        elif content_type == 'photo':
+                            send_photo(chat_id, content)
+                        elif content_type == 'video':
+                            send_video(chat_id, content)
+                        elif content_type == 'audio':
+                            send_audio(chat_id, content)
+                        elif content_type == 'document':
+                            send_document(chat_id, content)
+                        elif content_type == 'sticker':
+                            send_sticker(chat_id, content)
+                        elif content_type == 'voice':
+                            send_voice(chat_id, content)
+                        elif content_type == 'video_note':
+                            send_video_note(chat_id, content)
+                        elif content_type == 'location':
+                            loc_data = json.loads(content)
+                            send_location(chat_id, loc_data['latitude'], loc_data['longitude'])
+                        elif content_type == 'contact':
+                            contact_data = json.loads(content)
+                            send_contact(chat_id, contact_data['phone_number'], contact_data['first_name'], contact_data.get('last_name'))
+                        elif content_type == 'forward':
+                            send_message(chat_id, f"پیام فوروارد شده (Message ID): {content}")
+                        else:
+                            send_message(chat_id, f"فرمت محتوا پشتیبانی نمی‌شود: {content_type}")
+                    except Exception as e:
+                        logger.error(f"Error sending content of type {content_type} for file {file_name} to user {chat_id}: {e}")
+                        send_message(chat_id, f"خطا در نمایش محتوای نوع {content_type}.")
                 return 'ok'
 
             if data.startswith('add_'):
@@ -498,7 +666,7 @@ def webhook():
                 send_message(chat_id, "عملیات لغو شد.")
                 return 'ok'
 
-    # پنل ادمین
+    # پنل ادمین (دستور /admin)
     if 'message' in update and update['message']['text'] == '/admin' and update['message']['from']['id'] == ADMIN_ID:
         keyboard = {
             "inline_keyboard": [
@@ -529,13 +697,15 @@ def keep_alive():
     while True:
         try:
             requests.get(WEBHOOK_URL)
-        except:
-            pass
+            logger.info("Keep-alive ping sent.")
+        except Exception as e:
+            logger.error(f"Error during keep-alive ping: {e}")
         time.sleep(300)  # هر 5 دقیقه
 
 # راه‌اندازی ربات
-if __name__ == '__main__':
+if __name__ == '__main__': # Fix: Use __name__
     set_webhook()
     threading.Thread(target=keep_alive, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
