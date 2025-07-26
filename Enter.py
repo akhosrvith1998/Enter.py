@@ -190,7 +190,7 @@ def generate_user_id():
     lowercase = ''.join(random.choices(string.ascii_lowercase, k=4))
     digits = ''.join(random.choices(string.digits, k=5))
     special_chars = ''.join(random.choices('&%_"\'/×÷^√∆-+><=α@°•⌀©™®|}{][$№§¶¡±‰₿₽€£¥¢№«»≤≥', k=4))
-    return f"#{uppercase}{lowercase}{digits}{special_chars}"
+    return f"{uppercase}{lowercase}{digits}{special_chars}"
 
 def get_user_display_name(user_id):
     """دریافت نام نمایشی کاربر"""
@@ -467,7 +467,7 @@ def handle_command(message):
             # سایر دستورات ادمین ...
         
         # احراز هویت کاربران عادی
-        if len(text) == 18 and text.startswith("#"):
+        if len(text) == 18:
             user_record = db_execute("SELECT * FROM users WHERE user_id = ?", (text,), fetchone=True)
             if user_record:
                 owner = user_record[2] if len(user_record) > 2 else None
