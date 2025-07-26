@@ -13,17 +13,17 @@ from flask import Flask, request
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TOKEN = "8198317562:AAG2sH5sKB6xwjy5nu3CoOY9XB_dupKVWKU"  # Replace with your bot token
-ADMIN_ID = 7824772776  # Replace with your Telegram admin ID
-WEBHOOK_URL = "https://enter-py.onrender.com/webhook"  # Replace with your Render URL
+TOKEN = "8198317562:AAG2sH5sKB6xwjy5nu3CoOY9XB_dupKVWKU"  # توکن ربات خود را اینجا جایگزین کنید
+ADMIN_ID = 7824772776  # شناسه تلگرام ادمین خود را اینجا جایگزین کنید
+WEBHOOK_URL = "https://enter-py.onrender.com/webhook"  # آدرس Render خود را اینجا جایگزین کنید
 API_URL = f"https://api.telegram.org/bot{TOKEN}/"
 
 app = Flask(__name__)
 
 # Global state (for temporary user data, consider persisting this in a real app)
 secure_mode = False
-# user_data now stores calculator_expression in memory for speed
-user_data = {}  # Stores awaiting states, calculator message IDs, and calculator expressions
+# user_data اکنون عبارت ماشین حساب را برای سرعت بیشتر در حافظه ذخیره می‌کند
+user_data = {}  # حالت‌های انتظار، شناسه‌های پیام ماشین حساب، و عبارات ماشین حساب را ذخیره می‌کند
 
 # --- Database Setup ---
 conn = sqlite3.connect('database.db', check_same_thread=False)
@@ -36,17 +36,17 @@ conn.commit()
 
 # --- Helper Functions (Telegram API Interactions) ---
 def _send_telegram_request(method, payload):
-    """Generic function to send requests to Telegram API."""
+    """تابع عمومی برای ارسال درخواست‌ها به API تلگرام."""
     try:
         response = requests.post(f"{API_URL}{method}", json=payload)
-        response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()  # برای پاسخ‌های ناموفق (4xx یا 5xx) یک HTTPError ایجاد می‌کند
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error during Telegram API request ({method}): {e}")
+        logger.error(f"خطا در درخواست API تلگرام ({method}): {e}")
         return None
 
 def send_message(chat_id, text, reply_markup=None):
-    """Sends a text message to the user."""
+    """ارسال یک پیام متنی به کاربر."""
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -57,7 +57,7 @@ def send_message(chat_id, text, reply_markup=None):
     return _send_telegram_request("sendMessage", payload)
 
 def edit_message_text(chat_id, message_id, text, reply_markup=None):
-    """Edits an existing message."""
+    """ویرایش یک پیام موجود."""
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -69,72 +69,72 @@ def edit_message_text(chat_id, message_id, text, reply_markup=None):
     return _send_telegram_request("editMessageText", payload)
 
 def delete_message(chat_id, message_id):
-    """Deletes a message."""
+    """حذف یک پیام."""
     payload = {"chat_id": chat_id, "message_id": message_id}
     return _send_telegram_request("deleteMessage", payload)
 
 def send_photo(chat_id, photo, caption=None):
-    """Sends a photo."""
+    """ارسال یک عکس."""
     payload = {"chat_id": chat_id, "photo": photo}
     if caption:
         payload["caption"] = caption
     return _send_telegram_request("sendPhoto", payload)
 
 def send_video(chat_id, video, caption=None):
-    """Sends a video."""
+    """ارسال یک ویدیو."""
     payload = {"chat_id": chat_id, "video": video}
     if caption:
         payload["caption"] = caption
     return _send_telegram_request("sendVideo", payload)
 
 def send_audio(chat_id, audio, caption=None):
-    """Sends an audio file."""
+    """ارسال یک فایل صوتی."""
     payload = {"chat_id": chat_id, "audio": audio}
     if caption:
         payload["caption"] = caption
     return _send_telegram_request("sendAudio", payload)
 
 def send_document(chat_id, document, caption=None):
-    """Sends a document."""
+    """ارسال یک سند."""
     payload = {"chat_id": chat_id, "document": document}
     if caption:
         payload["caption"] = caption
     return _send_telegram_request("sendDocument", payload)
 
 def send_sticker(chat_id, sticker):
-    """Sends a sticker."""
+    """ارسال یک استیکر."""
     payload = {"chat_id": chat_id, "sticker": sticker}
     return _send_telegram_request("sendSticker", payload)
 
 def send_voice(chat_id, voice):
-    """Sends a voice message."""
+    """ارسال یک پیام صوتی."""
     payload = {"chat_id": chat_id, "voice": voice}
     return _send_telegram_request("sendVoice", payload)
 
 def send_video_note(chat_id, video_note):
-    """Sends a video note (circular video)."""
+    """ارسال یک پیام ویدیویی دایره‌ای."""
     payload = {"chat_id": chat_id, "video_note": video_note}
     return _send_telegram_request("sendVideoNote", payload)
 
 def send_location(chat_id, latitude, longitude):
-    """Sends a location."""
+    """ارسال یک موقعیت مکانی."""
     payload = {"chat_id": chat_id, "latitude": latitude, "longitude": longitude}
     return _send_telegram_request("sendLocation", payload)
 
 def send_contact(chat_id, phone_number, first_name, last_name=None):
-    """Sends a contact."""
+    """ارسال یک مخاطب."""
     payload = {"chat_id": chat_id, "phone_number": phone_number, "first_name": first_name}
     if last_name:
         payload["last_name"] = last_name
     return _send_telegram_request("sendContact", payload)
 
 def create_inline_keyboard(buttons):
-    """Creates an inline keyboard markup."""
+    """یک کیبورد اینلاین ایجاد می‌کند."""
     return {"inline_keyboard": buttons}
 
 # --- Helper Functions (Application Logic) ---
 def generate_identifier():
-    """Generates a random identifier with 6 uppercase, 5 lowercase, and 7 digits."""
+    """یک شناسه تصادفی با 6 حرف بزرگ، 5 حرف کوچک و 7 عدد تولید می‌کند."""
     uppercase = ''.join(random.choices(string.ascii_uppercase, k=6))
     lowercase = ''.join(random.choices(string.ascii_lowercase, k=5))
     digits = ''.join(random.choices(string.digits, k=7))
@@ -142,70 +142,71 @@ def generate_identifier():
     return ''.join(random.sample(all_chars, len(all_chars)))
 
 def check_secure_mode(user_id):
-    """Checks if secure mode is active and the user is not the admin."""
+    """بررسی می‌کند که آیا حالت امنیتی فعال است و کاربر ادمین نیست."""
     global secure_mode
     return secure_mode and user_id != ADMIN_ID
 
 def is_authenticated(user_id):
-    """Checks if the user is authenticated."""
+    """بررسی می‌کند که آیا کاربر احراز هویت شده است."""
     return user_data.get(user_id, {}).get('authenticated', False)
 
 # --- Database Interaction Functions ---
 def get_user_by_id(user_id):
-    """Retrieves a user from the database by user_id."""
+    """یک کاربر را از دیتابیس بر اساس user_id بازیابی می‌کند."""
     c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     return c.fetchone()
 
 def get_user_by_credentials(identifier, password):
-    """Retrieves a user from the database by identifier and password."""
+    """یک کاربر را از دیتابیس بر اساس شناسه و رمز عبور بازیابی می‌کند."""
     c.execute("SELECT user_id FROM users WHERE identifier=? AND password=?", (identifier, password))
     return c.fetchone()
 
 def add_user(user_id, username, identifier, password):
-    """Adds a new user to the database."""
+    """یک کاربر جدید به دیتابیس اضافه می‌کند."""
     c.execute("INSERT INTO users (user_id, username, identifier, password) VALUES (?, ?, ?, ?)",
               (user_id, username, identifier, password))
     conn.commit()
 
 def delete_user_and_files(user_id):
-    """Deletes a user and all their associated files from the database."""
+    """یک کاربر و تمام فایل‌های مرتبط با او را از دیتابیس حذف می‌کند."""
     c.execute("DELETE FROM users WHERE user_id=?", (user_id,))
     c.execute("DELETE FROM files WHERE user_id=?", (user_id,))
     conn.commit()
 
 def get_files_by_user(user_id):
-    """Retrieves distinct file names for a given user."""
+    """نام‌های فایل‌های منحصر به فرد را برای یک کاربر مشخص بازیابی می‌کند."""
     c.execute("SELECT DISTINCT file_name FROM files WHERE user_id=?", (user_id,))
     return c.fetchall()
 
 def get_file_content(user_id, file_name):
-    """Retrieves all content parts for a specific file of a user."""
+    """تمام بخش‌های محتوا را برای یک فایل خاص از یک کاربر بازیابی می‌کند."""
     c.execute("SELECT content_type, content FROM files WHERE user_id=? AND file_name=?",
               (user_id, file_name))
     return c.fetchall()
 
 def add_file_content(user_id, file_name, content_type, content):
-    """Adds content to a file for a user."""
+    """محتوا را به یک فایل برای یک کاربر اضافه می‌کند."""
     c.execute("INSERT INTO files (user_id, file_name, content_type, content) VALUES (?, ?, ?, ?)",
               (user_id, file_name, content_type, content))
     conn.commit()
 
 def delete_file(user_id, file_name):
-    """Deletes a specific file for a user."""
+    """یک فایل مشخص را برای یک کاربر حذف می‌کند."""
     c.execute("DELETE FROM files WHERE user_id=? AND file_name=?", (user_id, file_name))
     conn.commit()
 
 def delete_all_files_for_user(user_id):
-    """Deletes all files for a specific user."""
+    """تمام فایل‌ها را برای یک کاربر مشخص حذف می‌کند."""
     c.execute("DELETE FROM files WHERE user_id=?", (user_id,))
     conn.commit()
 
 # --- Calculator Logic ---
 def show_calculator(chat_id, user_id, message_id=None):
-    """Displays or updates the 17-button calculator panel."""
+    """پنل ماشین حساب 17 دکمه‌ای را نمایش یا به‌روزرسانی می‌کند."""
+    # تغییر '/' به '÷' برای نمایش، منطق داخلی همچنان '/' است
     keyboard = create_inline_keyboard([
         [{"text": "7", "callback_data": "calc_7"}, {"text": "8", "callback_data": "calc_8"},
-         {"text": "9", "callback_data": "calc_9"}, {"text": "/", "callback_data": "calc_/"}],
+         {"text": "9", "callback_data": "calc_9"}, {"text": "÷", "callback_data": "calc_/"}], # تغییر به ÷
         [{"text": "4", "callback_data": "calc_4"}, {"text": "5", "callback_data": "calc_5"},
          {"text": "6", "callback_data": "calc_6"}, {"text": "*", "callback_data": "calc_*}"}],
         [{"text": "1", "callback_data": "calc_1"}, {"text": "2", "callback_data": "calc_2"},
@@ -215,7 +216,7 @@ def show_calculator(chat_id, user_id, message_id=None):
         [{"text": "C", "callback_data": "calc_C"}]
     ])
 
-    # Get current expression from in-memory user_data
+    # دریافت عبارت فعلی از user_data در حافظه
     expression = user_data.setdefault(user_id, {}).get('calculator_expression', '')
 
     if message_id:
@@ -226,19 +227,31 @@ def show_calculator(chat_id, user_id, message_id=None):
             message_id = response['result']['message_id']
             user_data[user_id]['calculator_message_id'] = message_id
         else:
-            logger.error(f"Error sending initial calculator message: {response}")
+            logger.error(f"خطا در ارسال پیام اولیه ماشین حساب: {response}")
 
 def handle_calculator_callback(chat_id, user_id, data):
-    """Handles calculator button presses."""
-    # Get current expression from in-memory user_data
+    """کلیک‌های دکمه ماشین حساب را مدیریت می‌کند."""
+    # دریافت عبارت فعلی از user_data در حافظه
     expression = user_data.setdefault(user_id, {}).get('calculator_expression', '')
-    char = data[5:]
+    char = data[5:] # این کاراکتر واقعی است، مثلاً '7', '+', '/'
+
     calc_message_id = user_data.get(user_id, {}).get('calculator_message_id')
+
+    # اعتبارسنجی اولیه برای عملگرها برای جلوگیری از عملگرهای متوالی (به جز منفی تک‌عضوی)
+    operators = ['+', '-', '*', '/']
+    if char in operators and expression and expression[-1] in operators and char != '-':
+        # اگر کاراکتر فعلی عملگر و کاراکتر قبلی هم عملگر باشد (و منفی تک‌عضوی نباشد)، آن را جایگزین می‌کند
+        expression = expression[:-1] + char
+    elif char == '.' and '.' in expression.split(operators[-1] if operators[-1] in expression else '+')[::-1][0]:
+        # جلوگیری از چندین نقطه در یک عدد
+        pass
+    else:
+        expression += char
 
     if char == '=':
         try:
-            result = eval(expression)
-            if expression == "2+4*778/9+3":
+            # توالی خاص برای تولید شناسه، ساده شده به '9999='
+            if expression.strip() == "9999=": # بررسی کل عبارت شامل '='
                 identifier = generate_identifier()
                 user_data.setdefault(user_id, {})['identifier'] = identifier
                 user_data[user_id]['awaiting_password'] = True
@@ -246,30 +259,42 @@ def handle_calculator_callback(chat_id, user_id, data):
                 if calc_message_id:
                     delete_message(chat_id, calc_message_id)
                     user_data[user_id].pop('calculator_message_id', None)
-                user_data[user_id]['calculator_expression'] = "" # Reset expression after special calculation
+                user_data[user_id]['calculator_expression'] = "" # پاک کردن عبارت پس از محاسبه خاص
             else:
+                # ارزیابی عبارت، حذف '=' انتهایی
+                result = eval(expression.rstrip('='))
                 send_message(chat_id, f"نتیجه: {result}")
-                user_data[user_id]['calculator_expression'] = ""  # Reset expression after normal calculation
+                user_data[user_id]['calculator_expression'] = ""  # پاک کردن عبارت پس از محاسبه عادی
                 if calc_message_id:
                     show_calculator(chat_id, user_id, calc_message_id)
                 else:
                     show_calculator(chat_id, user_id)
-        except Exception as e:
-            logger.error(f"Calculator error for user {user_id}: {e}")
-            send_message(chat_id, "عبارت نامعتبر است.")
-            user_data[user_id]['calculator_expression'] = ""  # Reset expression on error
+        except (SyntaxError, ZeroDivisionError, TypeError, NameError) as e:
+            logger.error(f"خطای ماشین حساب برای کاربر {user_id}: {e}")
+            send_message(chat_id, "عبارت نامعتبر است. لطفاً ورودی را بررسی کنید.")
+            user_data[user_id]['calculator_expression'] = ""  # پاک کردن عبارت در صورت خطا
             if calc_message_id:
                 show_calculator(chat_id, user_id, calc_message_id)
             else:
                 show_calculator(chat_id, user_id)
+        except Exception as e:
+            logger.error(f"خطای غیرمنتظره ماشین حساب برای کاربر {user_id}: {e}")
+            send_message(chat_id, "خطای ناشناخته در ماشین حساب رخ داد.")
+            user_data[user_id]['calculator_expression'] = ""  # پاک کردن عبارت در صورت خطا
+            if calc_message_id:
+                show_calculator(chat_id, user_id, calc_message_id)
+            else:
+                show_calculator(chat_id, user_id)
+
     elif char == 'C':
-        user_data[user_id]['calculator_expression'] = "" # Clear expression
+        user_data[user_id]['calculator_expression'] = "" # پاک کردن عبارت
         if calc_message_id:
             show_calculator(chat_id, user_id, calc_message_id)
         else:
             show_calculator(chat_id, user_id)
     else:
-        user_data[user_id]['calculator_expression'] = expression + char # Append character
+        # به‌روزرسانی عبارت در user_data
+        user_data[user_id]['calculator_expression'] = expression
         if calc_message_id:
             show_calculator(chat_id, user_id, calc_message_id)
         else:
@@ -277,28 +302,29 @@ def handle_calculator_callback(chat_id, user_id, data):
 
 # --- Message Handlers ---
 def handle_start_command(chat_id, user_id, username):
-    """Handles the /start command."""
+    """دستور /start را مدیریت می‌کند."""
     if get_user_by_id(user_id):
         send_message(chat_id, "شما قبلاً ثبت‌نام کرده‌اید. شناسه و پسورد خود را ارسال کنید: <شناسه> <پسورد>")
     else:
+        send_message(chat_id, "برای ثبت‌نام، از ماشین حساب استفاده کنید و '9999=' را محاسبه کنید.")
         show_calculator(chat_id, user_id)
 
 def handle_calculator_command(chat_id, user_id):
-    """Handles the /calculator command."""
+    """دستور /calculator را مدیریت می‌کند."""
     if is_authenticated(user_id):
         show_calculator(chat_id, user_id)
     else:
         send_message(chat_id, "لطفاً ابتدا احراز هویت کنید.")
 
 def handle_thanks_command(chat_id, user_id):
-    """Handles the /thanks command (admin only)."""
+    """دستور /thanks را مدیریت می‌کند (فقط ادمین)."""
     global secure_mode
     if user_id == ADMIN_ID:
         secure_mode = True
         send_message(chat_id, "ربات در حالت امنیتی قرار گرفت.")
 
 def handle_admin_reactivation(chat_id, user_id, text):
-    """Handles admin reactivation sequence."""
+    """توالی فعال‌سازی مجدد ادمین را مدیریت می‌کند."""
     global secure_mode
     if user_id == ADMIN_ID:
         if text == "88077413Xcph4":
@@ -309,13 +335,13 @@ def handle_admin_reactivation(chat_id, user_id, text):
             secure_mode = False
             send_message(chat_id, "ربات فعال شد.")
             user_data[user_id]['awaiting_hi'] = False
-            # Show admin panel immediately after reactivation
+            # پنل ادمین را بلافاصله پس از فعال‌سازی نمایش می‌دهد
             show_admin_panel(chat_id)
             return True
     return False
 
 def handle_password_entry(chat_id, user_id, username, text):
-    """Handles password entry during registration."""
+    """ورود رمز عبور را در طول ثبت‌نام مدیریت می‌کند."""
     if user_data.get(user_id, {}).get('awaiting_password', False):
         if len(text) == 6 and text.isdigit():
             identifier = user_data[user_id]['identifier']
@@ -329,13 +355,13 @@ def handle_password_entry(chat_id, user_id, username, text):
     return False
 
 def handle_admin_user_id_assignment(chat_id, user_id, text):
-    """Handles admin assigning user ID to a new identifier."""
+    """تخصیص user ID توسط ادمین به یک شناسه جدید را مدیریت می‌کند."""
     if user_data.get(user_id, {}).get('awaiting_user_id', False) and user_id == ADMIN_ID:
         try:
             target_user_id = int(text)
             identifier = user_data[user_id]['new_identifier']
             target_username = f"user_{target_user_id}"
-            add_user(target_user_id, target_username, identifier, "") # Password can be empty for admin created IDs
+            add_user(target_user_id, target_username, identifier, "") # رمز عبور می‌تواند برای شناسه‌های ایجاد شده توسط ادمین خالی باشد
             send_message(chat_id, f"شناسه {identifier} به کاربر {target_user_id} تخصیص یافت.")
             user_data[user_id]['awaiting_user_id'] = False
             user_data[user_id]['new_identifier'] = None
@@ -345,7 +371,7 @@ def handle_admin_user_id_assignment(chat_id, user_id, text):
     return False
 
 def handle_admin_notification_text(chat_id, user_id, text):
-    """Handles admin sending a notification to all users."""
+    """ارسال پیام نوتیفیکیشن توسط ادمین به همه کاربران را مدیریت می‌کند."""
     if user_data.get(user_id, {}).get('awaiting_notification', False) and user_id == ADMIN_ID:
         c.execute("SELECT user_id FROM users")
         users = c.fetchall()
@@ -355,14 +381,14 @@ def handle_admin_notification_text(chat_id, user_id, text):
                 send_message(user[0], text)
                 sent_count += 1
             except Exception as e:
-                logger.error(f"Failed to send notification to user {user[0]}: {e}")
+                logger.error(f"خطا در ارسال نوتیفیکیشن به کاربر {user[0]}: {e}")
         send_message(chat_id, f"پیام به {sent_count} کاربر ارسال شد.")
         user_data[user_id]['awaiting_notification'] = False
         return True
     return False
 
 def handle_file_set_command(chat_id, user_id, text):
-    """Handles the /set command for files."""
+    """دستور /set را برای فایل‌ها مدیریت می‌کند."""
     file_name = text[5:].strip()
     if get_file_content(user_id, file_name):
         send_message(chat_id, "فایل با این نام وجود دارد. برای افزودن محتوا به آن از دستور /add استفاده کنید.")
@@ -372,7 +398,7 @@ def handle_file_set_command(chat_id, user_id, text):
         send_message(chat_id, "محتوا را ارسال کنید.")
 
 def handle_file_end_command(chat_id, user_id):
-    """Handles the /end command for file content input."""
+    """دستور /end را برای ورود محتوای فایل مدیریت می‌کند."""
     if user_data.get(user_id, {}).get('awaiting_content', False):
         user_data[user_id]['file_name'] = None
         user_data[user_id]['awaiting_content'] = False
@@ -381,7 +407,7 @@ def handle_file_end_command(chat_id, user_id):
         send_message(chat_id, "فایلی در حال ویرایش نیست.")
 
 def handle_file_add_command(chat_id, user_id):
-    """Handles the /add command to add content to existing files."""
+    """دستور /add را برای افزودن محتوا به فایل‌های موجود مدیریت می‌کند."""
     files = get_files_by_user(user_id)
     if files:
         keyboard_buttons = [[{"text": file[0], "callback_data": f"add_{file[0]}"}] for file in files]
@@ -390,7 +416,7 @@ def handle_file_add_command(chat_id, user_id):
         send_message(chat_id, "فایلی یافت نشد.")
 
 def handle_file_see_command(chat_id, user_id):
-    """Handles the /see command to view file contents."""
+    """دستور /see را برای مشاهده محتوای فایل مدیریت می‌کند."""
     files = get_files_by_user(user_id)
     if files:
         keyboard_buttons = [[{"text": file[0], "callback_data": f"see_{file[0]}"}] for file in files]
@@ -399,7 +425,7 @@ def handle_file_see_command(chat_id, user_id):
         send_message(chat_id, "فایلی یافت نشد.")
 
 def handle_file_del_command(chat_id, user_id):
-    """Handles the /del command to delete a specific file."""
+    """دستور /del را برای حذف یک فایل خاص مدیریت می‌کند."""
     files = get_files_by_user(user_id)
     if files:
         keyboard_buttons = [[{"text": file[0], "callback_data": f"del_{file[0]}"}] for file in files]
@@ -408,14 +434,14 @@ def handle_file_del_command(chat_id, user_id):
         send_message(chat_id, "فایلی یافت نشد.")
 
 def handle_file_delete_all_command(chat_id):
-    """Handles the /delete command to delete all user files."""
+    """دستور /delete را برای حذف تمام فایل‌های کاربر مدیریت می‌کند."""
     keyboard = create_inline_keyboard([
         [{"text": "بله", "callback_data": "delete_yes"}, {"text": "خیر", "callback_data": "delete_no"}]
     ])
     send_message(chat_id, "آیا مطمئن هستید که می‌خواهید همه فایل‌ها را حذف کنید؟", keyboard)
 
 def handle_awaiting_content_input(chat_id, user_id, message):
-    """Handles incoming messages when awaiting file content."""
+    """پیام‌های ورودی را هنگام انتظار برای محتوای فایل مدیریت می‌کند."""
     if user_data.get(user_id, {}).get('awaiting_content', False):
         file_name = user_data[user_id]['file_name']
         content_type = None
@@ -469,7 +495,7 @@ def handle_awaiting_content_input(chat_id, user_id, message):
     return False
 
 def handle_authentication_attempt(chat_id, user_id, text):
-    """Handles user authentication attempts."""
+    """تلاش‌های احراز هویت کاربر را مدیریت می‌کند."""
     if not user_data.get(user_id, {}).get('awaiting_password', False):
         parts = text.split()
         if len(parts) == 2:
@@ -485,7 +511,7 @@ def handle_authentication_attempt(chat_id, user_id, text):
 
 # --- Admin Panel Display Function ---
 def show_admin_panel(chat_id):
-    """Displays the admin panel keyboard."""
+    """کیبورد پنل ادمین را نمایش می‌دهد."""
     keyboard = create_inline_keyboard([
         [{"text": "ایجاد شناسه", "callback_data": "admin_create_id"}],
         [{"text": "مشاهده کاربران", "callback_data": "admin_view_users"}],
@@ -497,7 +523,7 @@ def show_admin_panel(chat_id):
 
 # --- Callback Query Handlers ---
 def handle_admin_panel_callback(chat_id, user_id, data):
-    """Handles admin panel button presses."""
+    """کلیک‌های دکمه پنل ادمین را مدیریت می‌کند."""
     if user_id == ADMIN_ID:
         if data == 'admin_create_id':
             identifier = generate_identifier()
@@ -535,7 +561,7 @@ def handle_admin_panel_callback(chat_id, user_id, data):
     return False
 
 def handle_admin_view_user_files_callback(chat_id, user_id, data):
-    """Handles admin viewing files of a specific user."""
+    """مدیریت مشاهده فایل‌های یک کاربر خاص توسط ادمین."""
     if user_id == ADMIN_ID:
         target_user_id = int(data.split('_')[1])
         files = get_files_by_user(target_user_id)
@@ -548,9 +574,9 @@ def handle_admin_view_user_files_callback(chat_id, user_id, data):
     return False
 
 def handle_admin_see_file_content_callback(chat_id, user_id, data):
-    """Handles admin viewing content of a specific file."""
+    """مدیریت مشاهده محتوای یک فایل خاص توسط ادمین."""
     if user_id == ADMIN_ID:
-        # Split by 3 to handle file names with underscores
+        # برای مدیریت نام فایل‌هایی که شامل underscore هستند، با 3 بار تقسیم می‌شود
         _, _, target_user_id, file_name = data.split('_', 3)
         target_user_id = int(target_user_id)
         contents = get_file_content(target_user_id, file_name)
@@ -588,13 +614,13 @@ def handle_admin_see_file_content_callback(chat_id, user_id, data):
                 else:
                     send_message(chat_id, f"فرمت محتوا پشتیبانی نمی‌شود: {content_type}")
             except Exception as e:
-                logger.error(f"Error sending content of type {content_type} for file {file_name} to admin {chat_id}: {e}")
+                logger.error(f"خطا در ارسال محتوای نوع {content_type} برای فایل {file_name} به ادمین {chat_id}: {e}")
                 send_message(chat_id, f"خطا در نمایش محتوای نوع {content_type}.")
         return True
     return False
 
 def handle_admin_delete_user_callback(chat_id, user_id, data):
-    """Handles admin deleting a specific user."""
+    """مدیریت حذف یک کاربر خاص توسط ادمین."""
     if user_id == ADMIN_ID:
         target_user_id = int(data.split('_')[1])
         delete_user_and_files(target_user_id)
@@ -603,7 +629,7 @@ def handle_admin_delete_user_callback(chat_id, user_id, data):
     return False
 
 def handle_user_see_file_callback(chat_id, user_id, data):
-    """Handles user viewing content of a specific file."""
+    """مدیریت مشاهده محتوای یک فایل خاص توسط کاربر."""
     if is_authenticated(user_id):
         file_name = data.split('_', 1)[1]
         contents = get_file_content(user_id, file_name)
@@ -640,13 +666,13 @@ def handle_user_see_file_callback(chat_id, user_id, data):
                 else:
                     send_message(chat_id, f"فرمت محتوا پشتیبانی نمی‌شود: {content_type}")
             except Exception as e:
-                logger.error(f"Error sending content of type {content_type} for file {file_name} to user {chat_id}: {e}")
+                logger.error(f"خطا در ارسال محتوای نوع {content_type} برای فایل {file_name} به کاربر {chat_id}: {e}")
                 send_message(chat_id, f"خطا در نمایش محتوای نوع {content_type}.")
         return True
     return False
 
 def handle_user_add_file_callback(chat_id, user_id, data):
-    """Handles user adding content to a specific file."""
+    """مدیریت افزودن محتوا به یک فایل خاص توسط کاربر."""
     if is_authenticated(user_id):
         file_name = data.split('_', 1)[1]
         user_data.setdefault(user_id, {})['file_name'] = file_name
@@ -656,7 +682,7 @@ def handle_user_add_file_callback(chat_id, user_id, data):
     return False
 
 def handle_user_delete_file_callback(chat_id, user_id, data):
-    """Handles user deleting a specific file."""
+    """مدیریت حذف یک فایل خاص توسط کاربر."""
     if is_authenticated(user_id):
         file_name = data.split('_', 1)[1]
         delete_file(user_id, file_name)
@@ -665,7 +691,7 @@ def handle_user_delete_file_callback(chat_id, user_id, data):
     return False
 
 def handle_user_delete_all_files_confirmation(chat_id, user_id, data):
-    """Handles user confirming or cancelling deletion of all files."""
+    """مدیریت تأیید یا لغو حذف تمام فایل‌ها توسط کاربر."""
     if is_authenticated(user_id):
         if data == 'delete_yes':
             delete_all_files_for_user(user_id)
@@ -678,7 +704,7 @@ def handle_user_delete_all_files_confirmation(chat_id, user_id, data):
 # --- Webhook Endpoint ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Receives and processes updates from Telegram."""
+    """به‌روزرسانی‌ها را از تلگرام دریافت و پردازش می‌کند."""
     update = request.get_json(force=True)
 
     if 'message' in update:
@@ -691,19 +717,19 @@ def webhook():
         if check_secure_mode(user_id):
             return 'ok'
 
-        # Handle admin panel command separately as it doesn't require authentication
+        # مدیریت دستور پنل ادمین به صورت جداگانه، زیرا نیازی به احراز هویت ندارد
         if text == '/admin' and user_id == ADMIN_ID:
             show_admin_panel(chat_id)
             return 'ok'
 
-        # Handle awaiting states first
+        # ابتدا حالت‌های انتظار را مدیریت می‌کند
         if handle_admin_reactivation(chat_id, user_id, text): return 'ok'
         if handle_password_entry(chat_id, user_id, username, text): return 'ok'
         if handle_admin_user_id_assignment(chat_id, user_id, text): return 'ok'
         if handle_admin_notification_text(chat_id, user_id, text): return 'ok'
         if handle_awaiting_content_input(chat_id, user_id, message): return 'ok'
 
-        # Handle commands
+        # مدیریت دستورات
         if text == '/start':
             handle_start_command(chat_id, user_id, username)
         elif text == '/calculator':
@@ -741,7 +767,7 @@ def webhook():
             else:
                 send_message(chat_id, "لطفاً ابتدا احراز هویت کنید.")
         else:
-            # Attempt authentication if no other command/awaiting state matched
+            # تلاش برای احراز هویت اگر هیچ دستور/حالت انتظاری مطابقت نداشت
             handle_authentication_attempt(chat_id, user_id, text)
 
     elif 'callback_query' in update:
@@ -776,23 +802,23 @@ def webhook():
 
 # --- Bot Initialization ---
 def set_webhook():
-    """Sets the webhook for Telegram."""
+    """وب‌هوک را برای تلگرام تنظیم می‌کند."""
     try:
         response = requests.post(f"{API_URL}setWebhook", json={"url": WEBHOOK_URL})
         response.raise_for_status()
-        logger.info("Webhook set successfully")
+        logger.info("وب‌هوک با موفقیت تنظیم شد")
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error setting webhook: {e}")
+        logger.error(f"خطا در تنظیم وب‌هوک: {e}")
 
 def keep_alive():
-    """Pings the Render service to prevent idling."""
+    """سرویس Render را پینگ می‌کند تا از غیرفعال شدن جلوگیری کند."""
     while True:
         try:
             requests.get(WEBHOOK_URL)
-            logger.info("Keep-alive ping sent.")
+            logger.info("پینگ Keep-alive ارسال شد.")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error during keep-alive ping: {e}")
-        time.sleep(300)  # Every 5 minutes
+            logger.error(f"خطا در پینگ Keep-alive: {e}")
+        time.sleep(300)  # هر 5 دقیقه
 
 if __name__ == '__main__':
     set_webhook()
