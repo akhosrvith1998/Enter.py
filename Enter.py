@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # تنظیمات ربات
 TOKEN = "8198317562:AAG2sH5sKB6xwjy5nu3CoOY9XB_dupKVWKU"
-ADMIN_ID = 123456789  # شناسه تلگرام ادمین خود را جایگزین کنید
+ADMIN_ID = 7824772776  # شناسه تلگرام ادمین خود را جایگزین کنید
 WEBHOOK_URL = "https://your-render-app.com/webhook"  # آدرس Render خود را جایگزین کنید
 secure_mode = False  # حالت امنیتی
 
